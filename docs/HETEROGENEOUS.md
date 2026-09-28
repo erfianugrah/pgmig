@@ -225,7 +225,7 @@ The SQL Server engine is implemented end-to-end and forks cleanly off `cfg.sourc
   `is_cdc_enabled` asserts).
 - **harness** — `test/heterogeneous/harness-sqlserver.ts` + `docker-compose.sqlserver.yml`,
   **green end-to-end in CI** (the `heterogeneous` job) against real SQL Server 2022 (Developer,
-  CDC) + Debezium 3.6.0.CR1 + Postgres 16.
+  CDC) + Debezium 3.6.3.Final + Postgres 16.
 
 The Debezium **SQL Server connector** captures from SQL Server **CDC change-tables**, not a
 binlog — so the source-prep playbook (see [`GUIDED-MIGRATION.md`](GUIDED-MIGRATION.md) §7b)
