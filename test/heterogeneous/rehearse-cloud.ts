@@ -12,7 +12,7 @@
  *
  * What it does (exit 0 = PASS):
  *   1. (optional) translate --apply  -- draft the target DDL from the live source catalog and apply
- *      it to the target. Skipped when SBSHIFT_REHEARSE_SKIP_TRANSLATE=1 (you already applied it).
+ *      it to the target. Skipped when PGMIG_REHEARSE_SKIP_TRANSLATE=1 (you already applied it).
  *      NEVER signed off -- sign-off is a cutover gate, and this rehearsal does not cut over.
  *   2. replicate  -- launch Debezium Server (the pinned image) pointed at the cloud source.
  *   3. watch      -- connector health + initial-sync catch-up + the retention watchdog.
@@ -20,7 +20,7 @@
  *   5. teardown   -- stop/remove the container + offset volume. NO cutover.
  *
  * Config + secrets are loaded EXACTLY as the CLI loads them, so what you rehearse is what you run:
- *   - config:  $SBSHIFT_CONFIG (default ./migrate.config.yaml)   -- source.engine, tables, reconcile
+ *   - config:  $PGMIG_CONFIG (default ./migrate.config.yaml)   -- source.engine, tables, reconcile
  *   - secrets: $SOURCE_DB_URL / $TARGET_DB_URL (env or your .env) -- the live endpoints
  *
  * For Azure SQL, put `?encrypt=true` on SOURCE_DB_URL (the engine flips TLS on for it). The
@@ -46,20 +46,20 @@ import { translate } from "../../src/steps/translate.ts";
 const sh = (cmd: string[]) => execSync(cmd.join(" "), { stdio: "inherit" });
 
 async function main() {
-  const configPath = process.env.SBSHIFT_CONFIG ?? "migrate.config.yaml";
+  const configPath = process.env.PGMIG_CONFIG ?? "migrate.config.yaml";
   const cfg = loadConfig(configPath);
   const secrets = loadSecrets();
 
   if (cfg.source.engine !== "mysql" && cfg.source.engine !== "sqlserver") {
     console.error(
       `rehearse-cloud is for the heterogeneous engines (mysql | sqlserver); ` +
-        `source.engine=${cfg.source.engine ?? "postgres"}. For PG->PG use \`sbshift rehearse run\`.`,
+        `source.engine=${cfg.source.engine ?? "postgres"}. For PG->PG use \`pgmig rehearse run\`.`,
     );
     process.exit(2);
   }
 
   console.log("═══════════════════════════════════════════════════════════════════════");
-  console.log(" sbshift REAL-CLOUD REHEARSAL (heterogeneous)");
+  console.log(" pgmig REAL-CLOUD REHEARSAL (heterogeneous)");
   console.log(`   source engine : ${cfg.source.engine}`);
   console.log(`   config        : ${configPath}`);
   console.log(`   tables        : ${cfg.reconcile.tables.map((t) => t.name).join(", ")}`);
@@ -70,14 +70,14 @@ async function main() {
   sh(["docker", "build", "-t", DEBEZIUM_IMAGE, "images/debezium-server/"]);
 
   const pg = postgres(secrets.TARGET_DB_URL, { idle_timeout: 5 });
-  const outDir = mkdtempSync(join(tmpdir(), "sbshift-rehearse-cloud-"));
+  const outDir = mkdtempSync(join(tmpdir(), "pgmig-rehearse-cloud-"));
   // biome-ignore lint/suspicious/noExplicitAny: Db sentinels -- debezium ignores source/target here
   const NODB = null as any;
   const engine = new DebeziumEngine();
   let failed = false;
   try {
-    if (process.env.SBSHIFT_REHEARSE_SKIP_TRANSLATE === "1") {
-      console.log("── translate: SKIPPED (SBSHIFT_REHEARSE_SKIP_TRANSLATE=1) ──");
+    if (process.env.PGMIG_REHEARSE_SKIP_TRANSLATE === "1") {
+      console.log("── translate: SKIPPED (PGMIG_REHEARSE_SKIP_TRANSLATE=1) ──");
     } else {
       console.log(
         "── translate: draft the target schema from the live source + apply (NO sign-off) ──",
@@ -111,7 +111,7 @@ async function main() {
   } catch (e) {
     failed = true;
     console.error(`\nREHEARSAL FAIL - ${e instanceof Error ? e.message : String(e)}`);
-    console.error("inspect: docker logs sbshift-dbz-<publication>");
+    console.error("inspect: docker logs pgmig-dbz-<publication>");
   } finally {
     await pg.end({ timeout: 5 });
     console.log(

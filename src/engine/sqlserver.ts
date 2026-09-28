@@ -4,7 +4,7 @@
  * engine-prep playbook, and the T-SQL schema translator's catalog introspection. Mirrors
  * `mysql.ts`: only the heterogeneous engine queries a SQL Server source directly.
  *
- * sbshift's `connect()` builds Postgres clients only (postgres.js), so a `sqlserver://` SOURCE_DB_URL
+ * pgmig's `connect()` builds Postgres clients only (postgres.js), so a `sqlserver://` SOURCE_DB_URL
  * cannot be queried through the `source: Db` the ReplicationEngine interface passes — the engine
  * opens its own SQL Server connection here instead. Kept behind a tiny interface so callers can be
  * tested with an in-memory fake (no live SQL Server in the unit suite).

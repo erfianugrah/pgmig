@@ -272,7 +272,7 @@ export function dumpRolesCmd(sourceUrl: string, file: string): string[] {
 
 /**
  * Pure: `pg_dump` argv for schema-only DDL. Strips the source's own
- * publications/subscriptions (sbshift creates its own) and ownership/ACLs so the
+ * publications/subscriptions (pgmig creates its own) and ownership/ACLs so the
  * restore doesn't fail on roles that differ between projects.
  */
 export function dumpSchemaCmd(

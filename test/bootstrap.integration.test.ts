@@ -36,7 +36,7 @@ function buildSecrets(): Secrets {
 }
 
 const cfg = buildConfig();
-const OUT = "/tmp/sbshift-bootstrap-itest";
+const OUT = "/tmp/pgmig-bootstrap-itest";
 let source: Db;
 let target: Db;
 let close: () => Promise<void>;

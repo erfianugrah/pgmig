@@ -23,6 +23,15 @@ type Ctx = { source: Db; target: Db; arg?: string };
 type Scenario = {
   describe: string;
   expect: string; // which gate should catch it
+  /**
+   * What re-running reconcile after this scenario should show, so the rehearsal fault gate
+   * (orchestrate.ts) can judge the outcome correctly instead of assuming every scenario is
+   * reconcile-must-fail: "must-fail" (the classic divergence case), "must-pass" (tsearch-drift
+   * proves reconcile correctly ignores it), or "none" when the scenario's own gate is preflight/
+   * watch/cutover - reconcile was already exercised earlier in the same pipeline and re-running it
+   * post-chaos proves nothing about this scenario.
+   */
+  reconcileGate: "must-fail" | "must-pass" | "none";
   run: (ctx: Ctx) => Promise<void>;
 };
 
@@ -30,6 +39,7 @@ export const SCENARIOS: Record<ScenarioName, Scenario> = {
   "drop-replica-identity": {
     describe: "Set a table's REPLICA IDENTITY to NOTHING on the source.",
     expect: "preflight must FAIL the table (no PK/UK/FULL).",
+    reconcileGate: "none",
     run: async ({ source, arg }) => {
       const tbl = arg ?? "public.documents";
       await source.unsafe(`ALTER TABLE ${tbl} REPLICA IDENTITY NOTHING`);
@@ -40,6 +50,7 @@ export const SCENARIOS: Record<ScenarioName, Scenario> = {
   "lose-row": {
     describe: "Delete one random row on the TARGET only (simulates a dropped row).",
     expect: "reconcile must report 1 missing_on_target in some bucket.",
+    reconcileGate: "must-fail",
     run: async ({ target, arg }) => {
       const tbl = arg ?? "public.documents";
       const [r] = await target.unsafe(
@@ -54,6 +65,7 @@ export const SCENARIOS: Record<ScenarioName, Scenario> = {
   "corrupt-row": {
     describe: "Mutate one row's content on the TARGET only (content drift, same PK).",
     expect: "reconcile must report 1 hash_diff (count still matches).",
+    reconcileGate: "must-fail",
     run: async ({ target, arg }) => {
       const tbl = arg ?? "public.documents";
       await target.unsafe(
@@ -67,6 +79,7 @@ export const SCENARIOS: Record<ScenarioName, Scenario> = {
   "stall-subscriber": {
     describe: "DISABLE the subscription on the target while the writer keeps running.",
     expect: "watch's WAL watchdog should fire as the source slot retains WAL.",
+    reconcileGate: "none",
     run: async ({ target, arg }) => {
       const sub = arg ?? "region_migration_sub";
       await target.unsafe(`ALTER SUBSCRIPTION ${sub} DISABLE`);
@@ -81,6 +94,7 @@ export const SCENARIOS: Record<ScenarioName, Scenario> = {
     describe:
       "Create a serial-PK demo table and advance its source sequence past the target's (the classic post-cutover collision).",
     expect: "demonstrates why sequences need manual setval at cutover (uuid PKs are immune).",
+    reconcileGate: "none",
     run: async ({ source }) => {
       await source.unsafe(
         `CREATE TABLE IF NOT EXISTS public.chaos_seq_demo (id bigserial PRIMARY KEY, v text)`,
@@ -95,7 +109,8 @@ export const SCENARIOS: Record<ScenarioName, Scenario> = {
   "tsearch-drift": {
     describe:
       "Change default_text_search_config on the target (would break a naive hash that included search_vector).",
-    expect: "reconcile must still PASS — we exclude generated columns, proving the guard works.",
+    expect: "reconcile must still PASS - we exclude generated columns, proving the guard works.",
+    reconcileGate: "must-pass",
     run: async ({ target }) => {
       // H-2: ALTER DATABASE is a persistent, database-level GUC change that survives
       // teardown. We revert it here rather than printing a hint that may be missed.

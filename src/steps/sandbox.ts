@@ -1,19 +1,19 @@
 /**
- * `sbshift sandbox` — stand up (and tear down) a throwaway Supabase SOURCE+TARGET
+ * `pgmig sandbox` — stand up (and tear down) a throwaway Supabase SOURCE+TARGET
  * project pair for a hands-on rehearsal of the migration pipeline, without
  * touching any real project.
  *
- *   sbshift sandbox up --org <id>      # create pair, seed source, write sandbox config + env
- *   sbshift sandbox status             # show the current sandbox
- *   sbshift sandbox down               # delete both projects + remove generated files
+ *   pgmig sandbox up --org <id>      # create pair, seed source, write sandbox config + env
+ *   pgmig sandbox status             # show the current sandbox
+ *   pgmig sandbox down               # delete both projects + remove generated files
  *
  * `up` writes three files (all gitignored):
  *   - migrate.sandbox.yaml   the migration config pointing at the pair
  *   - .env.sandbox           SOURCE/TARGET pooler URLs + SOURCE_REPLICATION_URL + token
- *   - .sbshift-sandbox.json  state (refs/regions) so `down`/`status` need no args
+ *   - .pgmig-sandbox.json  state (refs/regions) so `down`/`status` need no args
  *
  * Then drive the pipeline against it (the file is authoritative over your shell):
- *   sbshift -c migrate.sandbox.yaml --env-file .env.sandbox doctor
+ *   pgmig -c migrate.sandbox.yaml --env-file .env.sandbox doctor
  *   ... bootstrap --confirm / replicate / watch / reconcile / cutover
  *
  * The pair costs real money while it exists — run `sandbox down` when finished.
@@ -29,7 +29,7 @@ import type { MgmtApi } from "../mgmt.ts";
 import SCHEMA_SQL from "../rehearsal/schema.sql" with { type: "text" };
 import { seed } from "../rehearsal/seed.ts";
 
-const STATE_FILE = ".sbshift-sandbox.json";
+const STATE_FILE = ".pgmig-sandbox.json";
 const CONFIG_FILE = "migrate.sandbox.yaml";
 const ENV_FILE = ".env.sandbox";
 
@@ -147,16 +147,16 @@ function writeState(state: SandboxState): void {
 function renderConfig(state: SandboxState): string {
   const tableList = TABLES.map((t) => `    - ${t}`).join("\n");
   const reconcileList = TABLES.map((t) => `    - name: ${t}`).join("\n");
-  return `# sbshift SANDBOX config — throwaway pair, safe to delete (sbshift sandbox down).
+  return `# pgmig SANDBOX config — throwaway pair, safe to delete (pgmig sandbox down).
 source:
   ref: ${state.srcRef} # sandbox source (${state.srcRegion})
 target:
   ref: ${state.tgtRef} # sandbox target (${state.tgtRegion})
 
 replication:
-  publication: sbshift_sandbox_pub
-  slot: sbshift_sandbox_slot
-  subscription: sbshift_sandbox_sub
+  publication: pgmig_sandbox_pub
+  slot: pgmig_sandbox_slot
+  subscription: pgmig_sandbox_sub
   copyData: true
   tables:
 ${tableList}
@@ -186,7 +186,7 @@ functions:
 }
 
 function renderEnv(srcPool: string, tgtPool: string, srcDirect: string, token: string): string {
-  return `# sbshift SANDBOX secrets — throwaway pair (sbshift sandbox down removes this).
+  return `# pgmig SANDBOX secrets — throwaway pair (pgmig sandbox down removes this).
 SOURCE_DB_URL=${srcPool}
 TARGET_DB_URL=${tgtPool}
 SOURCE_REPLICATION_URL=${srcDirect}
@@ -203,7 +203,7 @@ export async function sandboxUp(api: MgmtApi, token: string, opts: SandboxUpOpts
     if (!existing.tgtRef) {
       throw new Error(
         `a previous \`sandbox up\` was interrupted before the target was created ` +
-          `(only src=${existing.srcRef} exists). Run \`sbshift sandbox down\` to delete it, ` +
+          `(only src=${existing.srcRef} exists). Run \`pgmig sandbox down\` to delete it, ` +
           `then \`sandbox up\` again.`,
       );
     }
@@ -222,7 +222,7 @@ export async function sandboxUp(api: MgmtApi, token: string, opts: SandboxUpOpts
     // `sandbox down` can always delete whatever exists — even if the second
     // create (or a crash) follows the first. Promise.all would reject both-or-
     // nothing and orphan a created project with no state file.
-    const srcRef = await api.createProject("sbshift-sandbox-src", opts.org, srcPw, opts.srcRegion);
+    const srcRef = await api.createProject("pgmig-sandbox-src", opts.org, srcPw, opts.srcRegion);
     writeState({
       srcRef,
       tgtRef: "",
@@ -230,7 +230,7 @@ export async function sandboxUp(api: MgmtApi, token: string, opts: SandboxUpOpts
       tgtRegion: opts.tgtRegion,
       createdAt,
     });
-    const tgtRef = await api.createProject("sbshift-sandbox-tgt", opts.org, tgtPw, opts.tgtRegion);
+    const tgtRef = await api.createProject("pgmig-sandbox-tgt", opts.org, tgtPw, opts.tgtRegion);
     state = { srcRef, tgtRef, srcRegion: opts.srcRegion, tgtRegion: opts.tgtRegion, createdAt };
     writeState(state);
     log.ok(`src=${srcRef}  tgt=${tgtRef}`);
@@ -282,7 +282,7 @@ function printDriveSteps(state: SandboxState): void {
 export function sandboxStatus(): void {
   const state = readState();
   if (!state) {
-    log.info("no sandbox (run `sbshift sandbox up --org <id>`)");
+    log.info("no sandbox (run `pgmig sandbox up --org <id>`)");
     return;
   }
   log.ok(`sandbox up since ${state.createdAt}`);

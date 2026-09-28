@@ -1,16 +1,16 @@
 {
-  "name": "sbshift",
+  "name": "pgmig",
   "version": "0.5.0",
   "description": "Typed CLI orchestrator for cross-region Supabase project migration via logical replication.",
   "license": "MIT",
   "author": "Erfi Anugrah <erfi.anugrah@gmail.com>",
   "type": "module",
   "bin": {
-    "sbshift": "./src/cli.ts"
+    "pgmig": "./src/cli.ts"
   },
   "scripts": {
     "start": "bun run src/cli.ts",
-    "build": "bun build ./src/cli.ts --compile --outfile sbshift",
+    "build": "bun build ./src/cli.ts --compile --outfile pgmig",
     "test": "bun test",
     "test:integration": "bun start rehearse integration",
     "typecheck": "tsc --noEmit",

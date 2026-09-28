@@ -4,7 +4,7 @@
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task.
 > Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** give sbshift a measured downtime number per cutover, persisted across runs and
+**Goal:** give pgmig a measured downtime number per cutover, persisted across runs and
 readable from `status`, and turn "change my project's region" into a named, sequenced recipe
 whose unsolvable part (project ref + API keys) is stated instead of implied.
 
@@ -44,8 +44,8 @@ Every CLI flag this plan mentions in a NEW form is created by this plan; none of
 `src/cli.ts` today. Task 3 and Task 5 add them, and each ends with a `--help` invocation that
 prints the flag back so the name is proven rather than assumed.
 
-**Dry-run status:** Tasks 1-6 were applied verbatim to a scratch copy at `/tmp/sbshift-check`
-(tar copy excluding `node_modules`, `.git`, `.env`, the compiled `sbshift` binary, `logs/` and
+**Dry-run status:** Tasks 1-6 were applied verbatim to a scratch copy at `/tmp/pgmig-check`
+(tar copy excluding `node_modules`, `.git`, `.env`, the compiled `pgmig` binary, `logs/` and
 `ledger/`; `node_modules` symlinked back). Sensors before: typecheck exit 0; lint
 `Checked 99 files ... No fixes applied`; `bun test` 490 pass / 20 skip / 0 fail across 34 files.
 Sensors after all six tasks: typecheck exit 0; lint `Checked 103 files ... No fixes applied`;
@@ -109,7 +109,7 @@ is marked UNVERIFIED in the doc itself with the experiment that would settle it.
 ```ts
 /**
  * Unit tests for src/steps/downtime.ts - the cutover downtime window.
- * The window is the only number backing sbshift's "near-zero-downtime" claim,
+ * The window is the only number backing pgmig's "near-zero-downtime" claim,
  * so its arithmetic is pure and pinned here.
  */
 import { describe, expect, test } from "bun:test";
@@ -220,7 +220,7 @@ describe("parseDowntimeHistory", () => {
 
 describe("append + read round trip", () => {
   test("appends NDJSON, creates the dir, and reads back in order", () => {
-    const dir = join(mkdtempSync(join(tmpdir(), "sbshift-dt-")), "ledger");
+    const dir = join(mkdtempSync(join(tmpdir(), "pgmig-dt-")), "ledger");
     const base = { recordedAt: "2026-08-04T09:00:07.000Z", targetRef: "ref", subscription: "sub" };
     const p1 = appendDowntimeRecord(dir, { ...computeWindow(marks()), ...base });
     appendDowntimeRecord(dir, {
@@ -233,12 +233,12 @@ describe("append + read round trip", () => {
   });
 
   test("reading a directory with no history yields an empty array", () => {
-    const dir = mkdtempSync(join(tmpdir(), "sbshift-dt-empty-"));
+    const dir = mkdtempSync(join(tmpdir(), "pgmig-dt-empty-"));
     expect(readDowntimeHistory(dir)).toEqual([]);
   });
 
   test("a partially corrupt history file still yields the good records", () => {
-    const dir = mkdtempSync(join(tmpdir(), "sbshift-dt-corrupt-"));
+    const dir = mkdtempSync(join(tmpdir(), "pgmig-dt-corrupt-"));
     const rec = JSON.stringify({
       ...computeWindow(marks()),
       recordedAt: "x",
@@ -302,7 +302,7 @@ describe("renderDowntimeHistory", () => {
 - [ ] **Step 2: Run it to verify it fails.**
 
 ```bash
-cd /path/to/sbshift && bun test test/downtime.test.ts
+cd /path/to/pgmig && bun test test/downtime.test.ts
 ```
 
 Expect a module-resolution failure, not an assertion failure:
@@ -322,7 +322,7 @@ import { log } from "../log.ts";
  *   END    the TARGET is free to accept writes, i.e. the moment `cutover`
  *          finishes dropping the subscription.
  *
- * sbshift observes the END directly. It does NOT observe the START: the freeze
+ * pgmig observes the END directly. It does NOT observe the START: the freeze
  * is an application-tier act that happens before the command is invoked (see
  * RUNBOOK step 9a). So the operator passes it, and when they do not, the window
  * falls back to cutover's own start time and is flagged `lowerBound: true` -
@@ -506,7 +506,7 @@ export function renderDowntimeHistory(records: DowntimeRecord[]): void {
 - [ ] **Step 4: Run the tests.**
 
 ```bash
-cd /path/to/sbshift && bun test test/downtime.test.ts && bun run typecheck && bun run lint
+cd /path/to/pgmig && bun test test/downtime.test.ts && bun run typecheck && bun run lint
 ```
 
 Expect `22 pass`, `0 fail` from the downtime file, `tsc --noEmit` exit 0, and biome
@@ -647,7 +647,7 @@ loop somehow exits without taking the mark, and a 0 there would compute a 56-yea
 - [ ] **Step 6: Run the sensors.**
 
 ```bash
-cd /path/to/sbshift && bun run typecheck && bun run lint && bun test
+cd /path/to/pgmig && bun run typecheck && bun run lint && bun test
 ```
 
 Expect typecheck exit 0, biome `No fixes applied`, and the suite green with the same counts as
@@ -771,7 +771,7 @@ import {
 - [ ] **Step 4: Run the sensors and prove the flags exist.**
 
 ```bash
-cd /path/to/sbshift && bun run typecheck && bun run lint && bun test
+cd /path/to/pgmig && bun run typecheck && bun run lint && bun test
 bun src/cli.ts cutover --help
 bun src/cli.ts status --help
 ```
@@ -791,7 +791,7 @@ credentials.
 ```ts
 /**
  * Unit tests for src/steps/region.ts. A region change is a project-to-project
- * migration, so the only thing sbshift can assert automatically is that the
+ * migration, so the only thing pgmig can assert automatically is that the
  * target really is in a different region - and that the identity artifacts
  * (ref + keys) do not travel. Both are pinned here.
  */
@@ -921,7 +921,7 @@ describe("regionCheck against a mocked Management API", () => {
 - [ ] **Step 2: Run it to verify it fails.**
 
 ```bash
-cd /path/to/sbshift && bun test test/region.test.ts
+cd /path/to/pgmig && bun test test/region.test.ts
 ```
 
 Expect `error: Cannot find module '../src/steps/region.ts'`.
@@ -940,7 +940,7 @@ import type { MgmtApi } from "../mgmt.ts";
  * which is exactly the pipeline the rest of this tool implements. See
  * docs/REGION-CHANGE.md for the full recipe.
  *
- * The one thing sbshift can assert automatically is that the move is actually
+ * The one thing pgmig can assert automatically is that the move is actually
  * cross-region - a target accidentally created in the SOURCE's region passes
  * every other gate in the tool and still leaves you where you started.
  */
@@ -1031,7 +1031,7 @@ export async function regionCheck(api: MgmtApi, cfg: Config): Promise<RegionRepo
 - [ ] **Step 4: Run the tests.**
 
 ```bash
-cd /path/to/sbshift && bun test test/region.test.ts && bun run typecheck && bun run lint
+cd /path/to/pgmig && bun test test/region.test.ts && bun run typecheck && bun run lint
 ```
 
 Expect `12 pass`, `0 fail`, typecheck exit 0, biome `No fixes applied`. As in Task 1, the
@@ -1092,7 +1092,7 @@ program
 - [ ] **Step 3: Run the sensors and prove the command exists.**
 
 ```bash
-cd /path/to/sbshift && bun run typecheck && bun run lint && bun test
+cd /path/to/pgmig && bun run typecheck && bun run lint && bun test
 bun src/cli.ts --help | grep region-check
 bun src/cli.ts region-check --help
 ```
@@ -1181,7 +1181,7 @@ change transparent to a shipped client.
 
 To settle it, run this on a throwaway pair before you rely on it:
 
-1. `sbshift sandbox up --org <id>` to get two projects.
+1. `pgmig sandbox up --org <id>` to get two projects.
 2. Attach a custom domain to the source and point a test client at the custom hostname only.
 3. Configure a third-party issuer on both projects and mint a token from that issuer.
 4. Run the recipe below end to end, repoint the custom domain at the target, and check
@@ -1231,7 +1231,7 @@ bun start watch
 date -u +%Y-%m-%dT%H:%M:%SZ
 
 # 7. Verify, then cut over. Pass the freeze timestamp so the recorded window covers
-#    the real outage instead of only the part sbshift was present for.
+#    the real outage instead of only the part pgmig was present for.
 bun start reconcile
 bun start cutover --write-stopped-at 2026-08-04T09:15:00Z
 
@@ -1369,7 +1369,7 @@ sd 'app must re-key \+ users re-login \|' \
 - [ ] **Step 6: Run the sensors and check the links resolve.**
 
 ```bash
-cd /path/to/sbshift && bun run typecheck && bun run lint && bun test
+cd /path/to/pgmig && bun run typecheck && bun run lint && bun test
 for f in docs/REGION-CHANGE.md docs/RUNBOOK.md docs/MIGRATION-SCOPE.md; do
   rg -o '\]\(([^)#]+)\)' -r '$1' "$f" | while read -r t; do
     case "$t" in http*|mailto:*) continue;; esac
@@ -1432,7 +1432,7 @@ null check).
 6. `formatMs` rounds to one decimal from one second up, so two runs that differ by a few tens
    of milliseconds render identically. The raw `totalMs` is in the record for anyone who cares.
 
-**Dry-run status.** All six tasks were applied verbatim to `/tmp/sbshift-check`.
+**Dry-run status.** All six tasks were applied verbatim to `/tmp/pgmig-check`.
 
 - Baseline: `bun run typecheck` exit 0; `bun run lint` -> `Checked 99 files in 72ms. No fixes
   applied.`; `bun test` -> 490 pass / 20 skip / 0 fail across 34 files.

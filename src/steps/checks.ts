@@ -137,7 +137,7 @@ export async function checkForeignReplicationSlots(
  * `ALTER ROLE ... SET` / `ALTER DATABASE ... SET` (statement_timeout,
  * auto_explain.*, pg_stat_statements.*, pgaudit.*, session_replication_role,
  * ...). Those live in `pg_db_role_setting` and are invisible to config-sync —
- * exactly the gap. Because sbshift has a direct DB connection we CAN read them,
+ * exactly the gap. Because pgmig has a direct DB connection we CAN read them,
  * diff source vs target, and tell the operator what to re-apply.
  *
  * We deliberately DETECT + REPORT, never auto-copy: many of these are tuned to

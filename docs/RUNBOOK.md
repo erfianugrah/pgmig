@@ -14,7 +14,7 @@ official guides + the Management-API surface), see **[`docs/MIGRATION-SCOPE.md`]
 
 > **Major-version upgrade rehearsal is a different workflow.** If you are rehearsing a Postgres
 > major-version upgrade (the in-place `pg_upgrade` path) rather than moving data to a new
-> project, use `sbshift upgrade doctor|capture|lab|verify` (also `pgupgrade` /
+> project, use `pgmig upgrade doctor|capture|lab|verify` (also `pgupgrade` /
 > `rehearse upgrade`) - no migrate.config.yaml needed. See the README section
 > **Major-version upgrade rehearsal**.
 
@@ -60,7 +60,7 @@ The direct host is **IPv6-only** unless the project has the IPv4 add-on. **If th
 from has no IPv6 route**, `replicate` / `watch` / `reconcile` cannot connect to the direct
 host from there. Pick one before you go further:
 
-- **Option A (recommended, $0):** run `sbshift` from an IPv6-capable host — e.g. a small
+- **Option A (recommended, $0):** run `pgmig` from an IPv6-capable host — e.g. a small
   VM in the target region. Clone the repo, `bun install`, copy `migrate.config.yaml` + `.env`.
 - **Option B (small cost):** enable the [IPv4 add-on](https://supabase.com/docs/guides/platform/ipv4-address)
   on the source (and target) for the migration window, then run from your box. Remove it after.
@@ -70,7 +70,7 @@ host from there. Pick one before you go further:
   pooler - the subscription's CONNECTION is `SOURCE_REPLICATION_URL`, dialed by the target's
   walreceiver over the provider's internal network, so replication stays direct. `doctor`
   validates the split, and `replicate` hard-errors if the replication CONNECTION is ever a pooler.
-  Prefer A or B - the pooler adds a hop for sbshift's own queries with no upside.
+  Prefer A or B - the pooler adds a hop for pgmig's own queries with no upside.
 
 The read-only prep in steps 2–3 and the dump/restore in step 6 work via the **pooler**
 regardless of which option you choose.
@@ -115,13 +115,13 @@ For a scale rehearsal that emulates real on-disk size + live write load, see the
 To drive the pair with the CLI / compiled binary directly from the host instead, split
 the URLs by who dials them:
 
-- `SOURCE_DB_URL` / `TARGET_DB_URL` - dialed by sbshift itself (seed, doctor,
+- `SOURCE_DB_URL` / `TARGET_DB_URL` - dialed by pgmig itself (seed, doctor,
   reconcile). Use the published host ports: `localhost:55432` / `localhost:55433`.
 - `SOURCE_REPLICATION_URL` - dialed by the TARGET's walreceiver. `localhost` would
   resolve to the target container itself, so use the compose network gateway IP with
   the published source port (reachable from inside the container AND from the host):
   `postgresql://postgres:pw@<gateway>:55432/postgres?sslmode=disable`. Get the gateway
-  via `docker network inspect sbshift-rehearsal_default --format '{{(index .IPAM.Config 0).Gateway}}'`.
+  via `docker network inspect pgmig-rehearsal_default --format '{{(index .IPAM.Config 0).Gateway}}'`.
 
 Three gotchas, all learned the hard way:
 
@@ -360,7 +360,7 @@ Run through these **before** you stop writes. If any check fails, address it fir
   cutover. Your application must use the new project's keys. Update env vars before
   repointing the app.
 
-Keep one dashboard view open for migration day: API RPS + p95/p99, 4xx/5xx + timeouts, DB CPU/mem/disk-latency/IOPS, DB connections (+ pooler), and the `sbshift watch`/`status` output (or its `--log-file`).
+Keep one dashboard view open for migration day: API RPS + p95/p99, 4xx/5xx + timeouts, DB CPU/mem/disk-latency/IOPS, DB connections (+ pooler), and the `pgmig watch`/`status` output (or its `--log-file`).
 
 ```bash
 # 9a. STOP application writes to the SOURCE (put the app in read-only / take it down).
@@ -621,6 +621,6 @@ project becomes a cold standby.
 
 All commands take `-c <path>` for an alternate config (default `migrate.config.yaml`), and
 `--env-file <path>` to load secrets from a specific file (default `.env` if present). The env
-file is **authoritative over inherited shell variables** - sbshift warns when it overrides a
+file is **authoritative over inherited shell variables** - pgmig warns when it overrides a
 conflicting one, so a stale `SOURCE_DB_URL` exported in your shell can never silently point a
 run at the wrong database. `--no-env-file` uses the inherited environment as-is.

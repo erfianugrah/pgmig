@@ -27,7 +27,7 @@ const QUARKUS_PORT = 8080;
 /** The container name for a migration, derived from the topic prefix (a bare ident). Stable so
  *  `replicate` and `teardown` address the same container without sharing state. */
 export function debeziumContainerName(topicPrefix: string): string {
-  return `sbshift-dbz-${topicPrefix}`;
+  return `pgmig-dbz-${topicPrefix}`;
 }
 
 /** The default persistent volume backing the data dir (offsets + schema-history) for a migration. */
@@ -77,7 +77,7 @@ export interface RunSpecOpts {
   configPath: string;
   /** Host path / named volume backing `plan.dataDir` (offset + schema-history persistence). */
   dataVolume: string;
-  /** Container name. Default `sbshift-dbz-<topicPrefix>`. */
+  /** Container name. Default `pgmig-dbz-<topicPrefix>`. */
   name?: string;
   /** Host port to publish the container's 8080 on (health + metrics). Default 8080. */
   metricsPort?: number;
@@ -89,7 +89,7 @@ export interface RunSpecOpts {
 
 /**
  * Build the run-spec for a Debezium container from a rendered {@link DebeziumPlan} plus the host
- * paths sbshift staged (the properties file + the data volume). The container needs no command
+ * paths pgmig staged (the properties file + the data volume). The container needs no command
  * args — Debezium Server auto-loads `./config/application.properties`.
  */
 export function debeziumRunSpec(opts: RunSpecOpts): DebeziumRunSpec {

@@ -28,7 +28,7 @@ MySQL (binlog ROW+FULL)  ──▶  Debezium Server  ──▶  Postgres (target
                               + debezium-server-jdbc + postgresql driver
 ```
 
-No Kafka, no Zookeeper, no Connect cluster. One JVM process (`debezium`) that sbshift's engine
+No Kafka, no Zookeeper, no Connect cluster. One JVM process (`debezium`) that pgmig's engine
 starts, watches, and tears down — the heterogeneous analogue of a Postgres subscription.
 
 ## Findings (these drive the DebeziumEngine design)
@@ -37,14 +37,14 @@ starts, watches, and tears down — the heterogeneous analogue of a Postgres sub
    Maven Central only from **3.6.0.Alpha2** (latest 3.6.0.CR1); the stock `3.0.0.Final` image
    does **not** have it (it bundles 14 messaging sinks — kafka/kinesis/pubsub/redis/… — but no
    JDBC). The newest quay server *image* with it is `3.6.0.Beta2`.
-   → **Engine impact:** sbshift either ships on a 3.6 pre-release, waits for 3.6 GA, or falls
+   → **Engine impact:** pgmig either ships on a 3.6 pre-release, waits for 3.6 GA, or falls
    back to single-node Kafka Connect (GA, but reintroduces the Kafka dependency the design
    rejected). Track 3.6 GA before committing the runtime.
 
 2. **Delivery guarantees are weaker than Kafka Connect.** The docs are explicit: Debezium
    Server's JDBC sink does **not** provide Kafka-Connect-grade offset management, exactly-once,
    or automatic error-handling/retries.
-   → **Engine impact:** this is *why* sbshift's reconcile (count + per-column aggregates) and
+   → **Engine impact:** this is *why* pgmig's reconcile (count + per-column aggregates) and
    fail-closed cutover gate are load-bearing for the heterogeneous path, not optional. The
    engine cannot trust the sink to be exactly-once.
 
@@ -67,7 +67,7 @@ starts, watches, and tears down — the heterogeneous analogue of a Postgres sub
 
 6. **`schema.evolution=basic` only ADDs columns.** It auto-creates the target table and adds new
    columns, but never changes types, drops, or renames — "dangerous operations prohibited."
-   → **Engine impact:** confirms sbshift must **pre-create** the target schema from the `guided`
+   → **Engine impact:** confirms pgmig must **pre-create** the target schema from the `guided`
    schema-translation draft (GUIDED-MIGRATION.md §7) and run the sink with `schema.evolution=none`
    in production. Relying on Debezium's auto-DDL would land MySQL `TINYINT(1)` etc. as the wrong
    Postgres types, bypassing the human-ratified decisions.

@@ -5,8 +5,8 @@
 -- (public.items), composite pk (public.tags), and a no-PK table
 -- (public.audit_log, REPLICA IDENTITY FULL).
 --
--- Consumers: `sbshift rehearse run` (orchestrate.ts + seed.ts seed/seedToSize,
--- which target this `documents` shape), `sbshift sandbox up`, and the
+-- Consumers: `pgmig rehearse run` (orchestrate.ts + seed.ts seed/seedToSize,
+-- which target this `documents` shape), `pgmig sandbox up`, and the
 -- docker-compose.rehearsal.yml init mount.
 --
 -- INTENTIONALLY distinct from test/annoying-schema.ts. That is a DIFFERENT

@@ -19,7 +19,7 @@ const RAW: CheckItem[] = [
     detect: { sql: "SELECT 1 FROM pg_replication_slots WHERE slot_name = $1" },
     guidance:
       "A replication slot left from a prior run blocks a clean start and pins WAL on the source. " +
-      "Drop it (pg_drop_replication_slot) or run `sbshift teardown` before re-replicating.",
+      "Drop it (pg_drop_replication_slot) or run `pgmig teardown` before re-replicating.",
     provenance: {
       source: "/docs/postgres/view-pg-replication-slots.md",
       lastSynced: "2026-06-24",
@@ -33,7 +33,7 @@ const RAW: CheckItem[] = [
     detect: { sql: "SELECT 1 FROM pg_publication WHERE pubname = $1" },
     guidance:
       "A publication left from a prior run is reused as-is; if its table set differs from config, " +
-      "drop it or run `sbshift teardown` first so the published set matches.",
+      "drop it or run `pgmig teardown` first so the published set matches.",
     provenance: {
       source: "/docs/postgres/catalog-pg-publication.md",
       lastSynced: "2026-06-24",
@@ -76,7 +76,7 @@ const RAW: CheckItem[] = [
     },
     guidance:
       "Logical replication does not carry DDL — the target schema must be created BEFORE replicate " +
-      "(load it via your migration tool / pg_dump --schema-only / `sbshift bootstrap`). A missing " +
+      "(load it via your migration tool / pg_dump --schema-only / `pgmig bootstrap`). A missing " +
       "table blocks the initial copy; a partitioned table replicates but reconcile scans only the " +
       "partition root.",
     provenance: {

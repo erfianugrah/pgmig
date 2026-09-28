@@ -1,8 +1,8 @@
-# sbshift DebeziumEngine image — Debezium Server + the no-Kafka JDBC sink + the Postgres driver.
+# pgmig DebeziumEngine image - Debezium Server + the no-Kafka JDBC sink + the Postgres driver.
 #
 # This is the production image the DebeziumEngine runs (the heterogeneous data plane,
 # HETEROGENEOUS.md §3). Built from the spike-proven manifest (spike/debezium-mysql/), promoted
-# to a maintained asset. Tag it to match the pin: `sbshift/debezium-server:3.6.0.CR1`
+# to a maintained asset. Tag it to match the pin: `pgmig/debezium-server:3.6.0.CR1`
 # (src/engine/debezium-runtime.ts: DEBEZIUM_IMAGE / DEBEZIUM_SERVER_VERSION).
 #
 # Two things the stock server image lacks and this image adds (spike finding #3):

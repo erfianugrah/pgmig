@@ -101,7 +101,7 @@ describe("MySQL source-prep playbook (§7)", () => {
     expect(st.klass).toBe("guided");
     expect(st.severity).toBe("fail");
     expect(st.guidance).toContain("never auto-applies");
-    expect(st.guidance).toContain("sbshift translate");
+    expect(st.guidance).toContain("pgmig translate");
     expect(st.guidance).toContain("--sign-off");
     expect(st.detect).toBeUndefined(); // a human-ratified draft, not a probe
   });

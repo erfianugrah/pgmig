@@ -15,7 +15,7 @@
 # subscription's CONNECTION resolves the same from the runner and from the
 # target's walreceiver. Host ports 55432/55433 are published for monitoring only.
 
-name: sbshift-rehearsal
+name: pgmig-rehearsal
 
 services:
   source:

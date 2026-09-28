@@ -1,21 +1,21 @@
 # Heterogeneous SQL Server integration harness (HETEROGENEOUS.md §6) — the SQL Server analogue of
 # docker-compose.yml. Brings up the SOURCE (SQL Server 2022, CDC-capable) and TARGET (Postgres) on
 # a named network; the Debezium container is launched by the engine's replicate() via `docker run`
-# and joined to this network (SBSHIFT_DBZ_NETWORK=sbshift-dbz-it-mssql).
+# and joined to this network (PGMIG_DBZ_NETWORK=pgmig-dbz-it-mssql).
 #
 # Unlike the pre-seeded MySQL image, the harness seeds SQL Server itself after `up --wait`
 # (CREATE DATABASE + sp_cdc_enable_db + table + sp_cdc_enable_table + rows) — see harness-sqlserver.ts.
 # SQL Server Agent MUST be on (MSSQL_AGENT_ENABLED=true) or the CDC capture job never runs.
 #
 # Run: see README.md. Requires Docker; NOT part of `bun test`.
-name: sbshift-dbz-it-mssql
+name: pgmig-dbz-it-mssql
 
 services:
   mssql:
     image: mcr.microsoft.com/mssql/server:2022-latest
     environment:
       ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: "Sbshift!Passw0rd"
+      MSSQL_SA_PASSWORD: "Pgmig!Passw0rd"
       MSSQL_AGENT_ENABLED: "true" # required: CDC capture/cleanup run as SQL Agent jobs
       MSSQL_PID: "Developer" # Developer edition supports CDC (EngineEdition 3)
     ports:
@@ -48,4 +48,4 @@ services:
 
 networks:
   it:
-    name: sbshift-dbz-it-mssql
+    name: pgmig-dbz-it-mssql

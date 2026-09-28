@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to sbshift are documented here. Format loosely follows
+All notable changes to pgmig are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Pre-1.0, minor
 versions may carry behaviour changes.
@@ -9,7 +9,7 @@ versions may carry behaviour changes.
 
 ### Added
 
-- **`sbshift upgrade` command group** (also aliased `pgupgrade` and nested as
+- **`pgmig upgrade` command group** (also aliased `pgupgrade` and nested as
   `rehearse upgrade`): Postgres major-version upgrade rehearsal for the
   pg_upgrade path. Four subcommands, none requiring a migrate.config.yaml:
   - `upgrade doctor` - read-only, source-only readiness audit: extension
@@ -55,7 +55,7 @@ versions may carry behaviour changes.
   helpers `diffExtensionVersions` / `extensionRiskNote` in `src/steps/doctor.ts`
   (unit-tested).
 - `doctor` and `preflight` now list any **logical replication slot on the
-  source that isn't sbshift's own** and warn about it before touching
+  source that isn't pgmig's own** and warn about it before touching
   anything. A slot from an unrelated CDC/replication consumer (e.g. another
   ETL or sync tool) can hold WAL retention hostage and interact
   unpredictably with a migration if it's discovered mid-run instead of ahead
@@ -93,10 +93,10 @@ versions may carry behaviour changes.
 
 ### Changed
 
-- **Project renamed `pgshift` -> `sbshift`** across the binary, `package.json`
+- **Project renamed `pgshift` -> `pgmig`** across the binary, `package.json`
   name/bin, docs, and the skill. The GitHub repo moved to
-  `github.com/erfianugrah/sbshift` (the old URL redirects). Runtime state/log
-  filenames follow suit (`.sbshift-sandbox.json`, `logs/sbshift-<cmd>-<ts>.log`).
+  `github.com/erfianugrah/pgmig` (the old URL redirects). Runtime state/log
+  filenames follow suit (`.pgmig-sandbox.json`, `logs/pgmig-<cmd>-<ts>.log`).
   No CLI-flag or config-schema changes beyond the command name itself.
 - Replication is now **direct-only, enforced in code** (was: doctor advisory).
   `replicate` hard-errors before `CREATE SUBSCRIPTION` if the effective
@@ -113,7 +113,7 @@ versions may carry behaviour changes.
   is the **IPv4 add-on** (or running from an IPv6-capable host). The
   pooler-split via `SOURCE_REPLICATION_URL` is documented as a last-resort
   fallback, with the clarification that it does NOT route WAL through the pooler
-  (replication stays direct; the pooler only fronts sbshift's own
+  (replication stays direct; the pooler only fronts pgmig's own
   admin/seed/reconcile queries).
 
 ## [0.2.0] - 2026-07-01
@@ -142,13 +142,13 @@ First tagged release. Two migration tracks, at two maturity levels.
   (`DebeziumEngine`), forking on `cfg.source.engine`. Full lifecycle
   harness-verified end-to-end in CI against real MySQL 8.2 and SQL Server 2022
   (Developer, CDC) + Debezium 3.6.0.CR1 + Postgres 16.
-- `sbshift translate` drafts the source-DDL -> Postgres-DDL with a human
+- `pgmig translate` drafts the source-DDL -> Postgres-DDL with a human
   sign-off gate; cutover is blocked until the drafted schema is ratified.
 - Cross-engine `reconcile` (count + portable per-column aggregates) with the
   byte-exact-hash downgrade logged loudly.
 - Engine-aware write-stop cutover gate: MySQL binlog position / SQL Server CDC
   `max_lsn`.
-- `sbshift guide <engine>` + live `doctor` engine-prep playbooks (KB-driven,
+- `pgmig guide <engine>` + live `doctor` engine-prep playbooks (KB-driven,
   provenance-stamped, drift-checked).
 
 ### Added
@@ -180,9 +180,9 @@ First tagged release. Two migration tracks, at two maturity levels.
 - Heterogeneous reconcile is count + portable aggregates, not a byte-exact row
   hash (a length-preserving text edit is invisible to it).
 - Debezium is pinned to a pre-release; the JDBC sink gives weaker delivery
-  guarantees than Kafka Connect, so sbshift's reconcile + fail-closed cutover
+  guarantees than Kafka Connect, so pgmig's reconcile + fail-closed cutover
   are load-bearing regardless of GA status.
 - Schema translation never auto-applies; cutover is gated on human sign-off.
 
-[0.3.0]: https://github.com/erfianugrah/sbshift/releases/tag/v0.3.0
-[0.2.0]: https://github.com/erfianugrah/sbshift/releases/tag/v0.2.0
+[0.3.0]: https://github.com/erfianugrah/pgmig/releases/tag/v0.3.0
+[0.2.0]: https://github.com/erfianugrah/pgmig/releases/tag/v0.2.0

@@ -53,9 +53,7 @@ export const log = {
     mkdirSync(dirname(path), { recursive: true });
     fileSink = createWriteStream(path, { flags: "a" });
     sinkPath = path;
-    fileSink.write(
-      `\n${new Date().toISOString()} ----   sbshift log opened (pid ${process.pid})\n`,
-    );
+    fileSink.write(`\n${new Date().toISOString()} ----   pgmig log opened (pid ${process.pid})\n`);
     return path;
   },
   /** Current sink path, if any. */

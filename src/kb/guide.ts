@@ -7,7 +7,7 @@ import type { CheckItem, Phase, ProviderHintItem } from "./schema.ts";
 /**
  * The prep playbook for one managed-Postgres provider, assembled from the KB.
  *
- * `sbshift guide` (docs/GUIDED-MIGRATION.md §5) surfaces "what must I do to use provider X as a
+ * `pgmig guide` (docs/GUIDED-MIGRATION.md §5) surfaces "what must I do to use provider X as a
  * migration source / target" as an ordered, provenance-stamped checklist a human can consult
  * *before* they hold live credentials. Each role-section combines two knowledge catalogs:
  *   - enablement hints — provider-specific, informed-class (flip a parameter in a console)
@@ -97,7 +97,7 @@ export function renderGuide(g: Guide): void {
       }
     }
     if (section.checks.length > 0) {
-      log.detail("readiness checks (run live by `sbshift doctor`):");
+      log.detail("readiness checks (run live by `pgmig doctor`):");
       for (const c of section.checks) {
         log.detail(`  [${c.severity}] ${c.id} — ${c.title}`);
         log.detail(`    ${c.guidance}`);
@@ -105,7 +105,7 @@ export function renderGuide(g: Guide): void {
       }
     }
   }
-  log.info("run `sbshift doctor` to execute these checks against your live source/target");
+  log.info("run `pgmig doctor` to execute these checks against your live source/target");
 }
 
 function plural(n: number): string {

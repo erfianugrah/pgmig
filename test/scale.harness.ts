@@ -138,7 +138,7 @@ async function prepare(source: Db, target: Db, seedRows: number): Promise<void> 
 async function migration(): Promise<void> {
   const { source, target, close } = connect(secrets);
   log.toFile(`logs/scale-annoying-${ROWS}-${Date.now()}.log`);
-  log.step(`sbshift scale run (annoying schema) — documents=${ROWS.toLocaleString()}`);
+  log.step(`pgmig scale run (annoying schema) — documents=${ROWS.toLocaleString()}`);
 
   await teardown(source, target, cfg);
   await createSchema(source);

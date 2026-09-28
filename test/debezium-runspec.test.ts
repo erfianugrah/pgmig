@@ -21,8 +21,8 @@ const plan = () =>
 
 const opts = (over: Partial<RunSpecOpts> = {}): RunSpecOpts => ({
   plan: plan(),
-  configPath: "/run/sbshift/dbz/application.properties",
-  dataVolume: "sbshift-dbz-data",
+  configPath: "/run/pgmig/dbz/application.properties",
+  dataVolume: "pgmig-dbz-data",
   ...over,
 });
 
@@ -30,31 +30,31 @@ describe("debeziumRunSpec", () => {
   test("launches the pinned custom image, detached, named from the topic prefix", () => {
     const s = debeziumRunSpec(opts());
     expect(s.image).toBe(DEBEZIUM_IMAGE);
-    expect(s.name).toBe("sbshift-dbz-dbz"); // sbshift-dbz-<topicPrefix>
-    expect(s.argv.slice(0, 5)).toEqual(["docker", "run", "--detach", "--name", "sbshift-dbz-dbz"]);
+    expect(s.name).toBe("pgmig-dbz-dbz"); // pgmig-dbz-<topicPrefix>
+    expect(s.argv.slice(0, 5)).toEqual(["docker", "run", "--detach", "--name", "pgmig-dbz-dbz"]);
     expect(s.argv.at(-1)).toBe(DEBEZIUM_IMAGE); // image is the final arg
   });
 
   test("mounts the rendered config read-only at the Quarkus path (finding #4)", () => {
     const s = debeziumRunSpec(opts());
     expect(s.mounts).toContainEqual({
-      host: "/run/sbshift/dbz/application.properties",
+      host: "/run/pgmig/dbz/application.properties",
       container: "/debezium/config/application.properties",
       readOnly: true,
     });
     expect(s.argv).toContain(
-      "/run/sbshift/dbz/application.properties:/debezium/config/application.properties:ro",
+      "/run/pgmig/dbz/application.properties:/debezium/config/application.properties:ro",
     );
   });
 
   test("mounts a persistent rw volume at the plan's data dir (offset/schema-history survival)", () => {
     const s = debeziumRunSpec(opts());
     expect(s.mounts).toContainEqual({
-      host: "sbshift-dbz-data",
+      host: "pgmig-dbz-data",
       container: "/debezium/data", // plan.dataDir
       readOnly: false,
     });
-    expect(s.argv).toContain("sbshift-dbz-data:/debezium/data");
+    expect(s.argv).toContain("pgmig-dbz-data:/debezium/data");
   });
 
   test("publishes 8080 and exposes health + metrics URLs (default port)", () => {
@@ -72,8 +72,8 @@ describe("debeziumRunSpec", () => {
   });
 
   test("joins a docker network when given, omits the flag otherwise", () => {
-    expect(debeziumRunSpec(opts({ network: "sbshift-net" })).argv).toContain("sbshift-net");
-    expect(debeziumRunSpec(opts({ network: "sbshift-net" })).argv).toContain("--network");
+    expect(debeziumRunSpec(opts({ network: "pgmig-net" })).argv).toContain("pgmig-net");
+    expect(debeziumRunSpec(opts({ network: "pgmig-net" })).argv).toContain("--network");
     expect(debeziumRunSpec(opts()).argv).not.toContain("--network");
   });
 

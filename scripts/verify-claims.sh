@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression checks: sbshift source + docs claims made by the lexicanum e2e
+# Regression checks: pgmig source + docs claims made by the lexicanum e2e
 # guides. Ported from the 2026-07-30 ad-hoc verification harness (lessons:
 # ~/.local/share/harness/HARNESS-NOTES.md). No network, no transcript - these
 # are the timeless subset. Run via `bun run verify:claims` (wired into CI).

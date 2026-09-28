@@ -2,7 +2,7 @@
 
 End-to-end verification for the `DebeziumEngine` (MySQL **and SQL Server** → Postgres, no Kafka —
 [`docs/HETEROGENEOUS.md`](../../docs/HETEROGENEOUS.md) §5–6). The production analogue of the
-proven spike (`spike/debezium-mysql/`), but it drives **sbshift's real engine** rather than a
+proven spike (`spike/debezium-mysql/`), but it drives **pgmig's real engine** rather than a
 hand-written compose service. There are two harnesses, one per source engine:
 
 | Source | Harness | Compose |
@@ -27,14 +27,14 @@ bun run test/heterogeneous/harness-sqlserver.ts   # SQL Server source
 
 The harness self-contains the whole sequence (exit 0 = PASS):
 
-1. **build** the engine image `sbshift/debezium-server:3.6.0.CR1` from `images/debezium-server/`;
+1. **build** the engine image `pgmig/debezium-server:3.6.0.CR1` from `images/debezium-server/`;
 2. **up** MySQL (`example-mysql`, 4 seeded `inventory.customers`) + an EMPTY Postgres target on
-   the `sbshift-dbz-it` network, published to host ports `53306` / `55432`;
+   the `pgmig-dbz-it` network, published to host ports `53306` / `55432`;
 3. **schema-translate** — `draftTargetSchema()` reads the MySQL `information_schema`, drafts the
    Postgres DDL (logging any guided decisions), and applies it to the target (production writes it
    for human sign-off; the harness auto-applies);
 4. **replicate** — `engine.replicate()` stages the rendered `application.properties`, `docker
-   run`s the Debezium container onto `sbshift-dbz-it`, and waits for `/q/health`;
+   run`s the Debezium container onto `pgmig-dbz-it`, and waits for `/q/health`;
 5. **snapshot assert** — the 4 seeded rows land in `public.customers`;
 6. **CDC assert** — a row INSERTed in MySQL streams through the binlog and appears in Postgres;
 7. **reconcile** — `engine.reconcile()` (count + portable aggregates via `mysql2`) reports PASS;
@@ -50,7 +50,7 @@ in-network `mysql:3306`).
 ### SQL Server harness
 
 Same shape, with SQL-Server-specific seeding (the `mcr.microsoft.com/mssql/server:2022-latest`
-image is not pre-seeded). On the `sbshift-dbz-it-mssql` network, host ports `51433` / `55433`,
+image is not pre-seeded). On the `pgmig-dbz-it-mssql` network, host ports `51433` / `55433`,
 health on `18081`:
 
 1. **build** the engine image (same `images/debezium-server/` — the Debezium Server image carries
@@ -76,9 +76,9 @@ cloud source** (Azure SQL Database / Managed Instance, or Amazon RDS / Aurora My
 Postgres target -- the beta -> stable evidence step -- use the cloud rehearsal harness:
 
 ```bash
-# config: $SBSHIFT_CONFIG (default ./migrate.config.yaml); secrets: $SOURCE_DB_URL / $TARGET_DB_URL
+# config: $PGMIG_CONFIG (default ./migrate.config.yaml); secrets: $SOURCE_DB_URL / $TARGET_DB_URL
 bun run test/heterogeneous/rehearse-cloud.ts
-# SBSHIFT_REHEARSE_SKIP_TRANSLATE=1  -> skip the schema draft/apply (already applied)
+# PGMIG_REHEARSE_SKIP_TRANSLATE=1  -> skip the schema draft/apply (already applied)
 ```
 
 It drives the REAL engine (`translate --apply` -> `replicate` -> `watch` -> `reconcile` ->
@@ -92,9 +92,9 @@ egress IP. Full source-prep + connectivity + cost notes:
 ## Topology
 
 ```
-                 docker network: sbshift-dbz-it
+                 docker network: pgmig-dbz-it
   ┌───────────┐        ┌──────────────────────────┐        ┌────────────┐
-  │  mysql    │binlog─▶ │ sbshift-dbz-dbz           │ JDBC ─▶ │ postgres   │
+  │  mysql    │binlog─▶ │ pgmig-dbz-dbz           │ JDBC ─▶ │ postgres   │
   │ inventory │        │ (engine.replicate spawned) │        │  target    │
   └───────────┘        │  Debezium Server 3.6.0.CR1│        └────────────┘
                        └──────────────────────────┘
@@ -109,10 +109,10 @@ harness addresses them by published host ports for its own inserts + assertions.
 
 | Env | Harness value | Meaning |
 |---|---|---|
-| `SBSHIFT_DBZ_NETWORK` | `sbshift-dbz-it` | network the Debezium container joins |
-| `SBSHIFT_DBZ_METRICS_PORT` | `18080` | host port the container's 8080 is published on (health) |
-| `SBSHIFT_DBZ_IMAGE` | (default) | engine image tag (default the pinned `DEBEZIUM_IMAGE`) |
-| `SBSHIFT_DBZ_STAGE_DIR` | (default tmp) | where the rendered `application.properties` is staged |
+| `PGMIG_DBZ_NETWORK` | `pgmig-dbz-it` | network the Debezium container joins |
+| `PGMIG_DBZ_METRICS_PORT` | `18080` | host port the container's 8080 is published on (health) |
+| `PGMIG_DBZ_IMAGE` | (default) | engine image tag (default the pinned `DEBEZIUM_IMAGE`) |
+| `PGMIG_DBZ_STAGE_DIR` | (default tmp) | where the rendered `application.properties` is staged |
 
 ## Status
 

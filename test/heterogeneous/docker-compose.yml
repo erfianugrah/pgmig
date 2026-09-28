@@ -3,11 +3,11 @@
 #
 # This compose brings up only the SOURCE (MySQL) and TARGET (Postgres) on a named network. The
 # Debezium container is NOT defined here — the engine's `replicate()` spawns it via `docker run`
-# and joins it to this network (SBSHIFT_DBZ_NETWORK=sbshift-dbz-it). That is the whole point of
-# the harness: exercise sbshift's own container lifecycle, not a hand-written compose service.
+# and joins it to this network (PGMIG_DBZ_NETWORK=pgmig-dbz-it). That is the whole point of
+# the harness: exercise pgmig's own container lifecycle, not a hand-written compose service.
 #
 # Run: see README.md. Requires Docker; NOT part of `bun test` (no .test.ts suffix).
-name: sbshift-dbz-it
+name: pgmig-dbz-it
 
 services:
   mysql:
@@ -45,5 +45,5 @@ services:
 
 networks:
   it:
-    # fixed name so the engine can join the Debezium container to it via SBSHIFT_DBZ_NETWORK.
-    name: sbshift-dbz-it
+    # fixed name so the engine can join the Debezium container to it via PGMIG_DBZ_NETWORK.
+    name: pgmig-dbz-it

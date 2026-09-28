@@ -90,5 +90,5 @@ export async function replicate(
        WITH (copy_data = ${copyData}, create_slot = false, slot_name = '${slot}')`,
   );
   log.ok(`created subscription ${subscription} (copy_data=${copyData})`);
-  log.info("initial sync started — run `sbshift watch` to track it");
+  log.info("initial sync started — run `pgmig watch` to track it");
 }

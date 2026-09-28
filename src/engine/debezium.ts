@@ -149,19 +149,19 @@ export function resolveRuntimeOpts(
   env: Record<string, string | undefined>,
   topicPrefix: string,
 ): DebeziumRuntimeOpts {
-  const stageDir = env.SBSHIFT_DBZ_STAGE_DIR ?? join(tmpdir(), `sbshift-dbz-${topicPrefix}`);
-  const portRaw = env.SBSHIFT_DBZ_METRICS_PORT;
+  const stageDir = env.PGMIG_DBZ_STAGE_DIR ?? join(tmpdir(), `pgmig-dbz-${topicPrefix}`);
+  const portRaw = env.PGMIG_DBZ_METRICS_PORT;
   const metricsPort = portRaw ? Number(portRaw) : 8080;
   if (!Number.isInteger(metricsPort) || metricsPort <= 0) {
-    throw new Error(`SBSHIFT_DBZ_METRICS_PORT must be a positive integer, got '${portRaw}'`);
+    throw new Error(`PGMIG_DBZ_METRICS_PORT must be a positive integer, got '${portRaw}'`);
   }
   return {
     stageDir,
     configPath: join(stageDir, "application.properties"),
-    dataVolume: env.SBSHIFT_DBZ_DATA_VOLUME ?? debeziumDataVolume(topicPrefix),
+    dataVolume: env.PGMIG_DBZ_DATA_VOLUME ?? debeziumDataVolume(topicPrefix),
     metricsPort,
-    network: env.SBSHIFT_DBZ_NETWORK || undefined,
-    image: env.SBSHIFT_DBZ_IMAGE ?? DEBEZIUM_IMAGE,
+    network: env.PGMIG_DBZ_NETWORK || undefined,
+    image: env.PGMIG_DBZ_IMAGE ?? DEBEZIUM_IMAGE,
   };
 }
 
@@ -456,7 +456,7 @@ export class DebeziumEngine implements ReplicationEngine {
    *
    * Before any of that it enforces the translated-schema sign-off gate (GUIDED-MIGRATION.md §7):
    * cutover refuses to flip traffic onto a schema the operator never reviewed + ratified via
-   * `sbshift translate --sign-off`.
+   * `pgmig translate --sign-off`.
    */
   async cutover(_source: Db, target: Db, cfg: Config, opts: CutoverOpts): Promise<void> {
     const engine = heterogeneousEngine(cfg);
@@ -522,7 +522,13 @@ export class DebeziumEngine implements ReplicationEngine {
 
     // 3. stop CDC (the analogue of dropping the subscription). teardown removes the container.
     const name = debeziumContainerName(cfg.replication.publication);
-    await this.io.exec(debeziumStopArgv(name));
+    const stop = await this.io.exec(debeziumStopArgv(name));
+    if (stop.exitCode !== 0) {
+      throw new Error(
+        `docker stop ${name} failed (exit ${stop.exitCode}): ${stop.stderr.trim() || stop.stdout.trim()} - ` +
+          "CDC may still be running; do not repoint traffic until this is resolved (check 'docker ps').",
+      );
+    }
     log.ok(`stopped CDC (${name})`);
     log.warn(
       "Now: repoint your app to the target, verify, and DO NOT re-enable writes on the source.",
@@ -571,15 +577,26 @@ function heterogeneousEngine(cfg: Config): "mysql" | "sqlserver" {
   return cfg.source.engine;
 }
 
+/**
+ * Quote a single source identifier per engine, escaping an embedded quote char by doubling it.
+ * Callers pass columns discovered live from the target's catalog (not just ident-validated
+ * config), so an embedded backtick/bracket must not be able to break out of the identifier.
+ */
+function sourceIdent(engine: "mysql" | "sqlserver", ident: string): string {
+  return engine === "sqlserver"
+    ? `[${ident.replace(/]/g, "]]")}]`
+    : `\`${ident.replace(/`/g, "``")}\``;
+}
+
 /** The fully-quoted source relation for a `schema.table` (mysql `db.table`) name, per engine. */
 function sourceRelation(engine: "mysql" | "sqlserver", qualifiedName: string): string {
   const [a, b] = qualifiedName.split(".") as [string, string];
-  return engine === "sqlserver" ? `[${a}].[${b}]` : `\`${a}\`.\`${b}\``;
+  return `${sourceIdent(engine, a)}.${sourceIdent(engine, b)}`;
 }
 
 /** Quote a single source column identifier per engine. */
 function sourceCol(engine: "mysql" | "sqlserver", col: string): string {
-  return engine === "sqlserver" ? `[${col}]` : `\`${col}\``;
+  return sourceIdent(engine, col);
 }
 
 /** Read the source commit position (the write-stop gate's stability probe), per engine. */

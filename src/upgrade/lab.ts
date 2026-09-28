@@ -19,9 +19,9 @@ import { connectSourceOnly } from "./source.ts";
  * Spins up a THROWAWAY Docker lab and times a real `pg_upgrade --link` from
  * PG<from> to PG<to>, N times, on production-like data:
  *
- *   sbshift-pgup-old-<from>   holds the pristine pre-upgrade copy (published
+ *   pgmig-pgup-old-<from>   holds the pristine pre-upgrade copy (published
  *                             :55440) - the "source" upgrade verify diffs against.
- *   sbshift-pgup-lab-<from>-<to>
+ *   pgmig-pgup-lab-<from>-<to>
  *                             dual-major image. Its old-major cluster is loaded
  *                             with the SAME data, snapshotted, then upgraded
  *                             --link once per run from a fresh copy of the
@@ -61,10 +61,10 @@ export const NEW_PORT = 55441;
 export type LabFlavor = "pgdg" | "supabase";
 
 /** Pure: container/image names, exported for tests. */
-export const oldContainerName = (from: number) => `sbshift-pgup-old-${from}`;
-export const labContainerName = (from: number, to: number) => `sbshift-pgup-lab-${from}-${to}`;
+export const oldContainerName = (from: number) => `pgmig-pgup-old-${from}`;
+export const labContainerName = (from: number, to: number) => `pgmig-pgup-lab-${from}-${to}`;
 export const labImageTag = (from: number, to: number, flavor: LabFlavor = "pgdg") =>
-  flavor === "supabase" ? `sbshift-pgupgrade-sb:${from}-${to}` : `sbshift-pgupgrade:${from}-${to}`;
+  flavor === "supabase" ? `pgmig-pgupgrade-sb:${from}-${to}` : `pgmig-pgupgrade:${from}-${to}`;
 
 /** Pure: lab connection URLs (host side), for verify + manual poking. */
 export const labUrls = () => ({
@@ -415,6 +415,19 @@ export async function upgradeLab(opts: LabOpts): Promise<LabReport | null> {
     );
   }
 
+  // From here on we touch docker (image build, containers, volumes via the container
+  // writable layer): on any failure, clean up rather than leave the lab half-built for a
+  // later `upgrade verify` to silently run against stale state.
+  try {
+    return await upgradeLabBody(opts, oldName, labName);
+  } catch (e) {
+    log.warn(`upgrade lab failed - removing ${oldName} + ${labName} to avoid stale leftover state`);
+    await rmContainers(oldName, labName);
+    throw e;
+  }
+}
+
+async function upgradeLabBody(opts: LabOpts, oldName: string, labName: string): Promise<LabReport> {
   const manifest = opts.captureDir ? readManifest(opts.captureDir) : undefined;
   const flavor: LabFlavor =
     opts.image === "pgdg" || opts.image === "supabase"

@@ -147,7 +147,7 @@ export function providerForHost(host: string): PgProvider {
   if (/(^|\.)neon\.tech$/i.test(host)) return "neon";
   // PlanetScale Postgres hosts: <id>-<region>.horizon.psdb.cloud (public) and
   // <endpoint>.<region>.private-pg.psdb.cloud / <region>.pg.psdb.cloud (private). The
-  // MySQL product uses *.connect.psdb.cloud, but sbshift only ever sees PG DSNs.
+  // MySQL product uses *.connect.psdb.cloud, but pgmig only ever sees PG DSNs.
   if (/\.psdb\.cloud$/i.test(host)) return "planetscale-postgres";
   if (/\.postgres\.database\.azure\.com$/i.test(host)) return "azure-postgres";
   return "generic";

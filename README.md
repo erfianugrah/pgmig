@@ -1,4 +1,4 @@
-# sbshift
+# pgmig
 
 **Near-zero-downtime Postgres-to-Postgres migration** via native logical replication. Move data
 between two databases while the source stays online. Only the final cutover (seconds to minutes)
@@ -11,7 +11,7 @@ project split), self-hosted to Supabase, or self-hosted to self-hosted.
 
 ## Which path should I use?
 
-sbshift has **three separate workflows**. Your goal determines which one to follow.
+pgmig has **three separate workflows**. Your goal determines which one to follow.
 
 | If you want to... | Use this path | Commands (in order) |
 |---|---|---|
@@ -84,7 +84,7 @@ ping -c 1 db.<your-project-ref>.supabase.co
 
 **If this fails**, your machine has no IPv6 route to the direct host. You have three options:
 
-- **Option A (recommended):** Run sbshift from an IPv6-capable host -- a small VM in the
+- **Option A (recommended):** Run pgmig from an IPv6-capable host -- a small VM in the
   target region. Clone the repo there, `bun install`, and run the commands.
 - **Option B (small cost, ~$6/mo):** Enable the IPv4 add-on on the source project. The
   direct host then resolves to IPv4.
@@ -111,17 +111,17 @@ Create one with scope `All` (or at minimum `Projects: read/write` and `Orgs: rea
 ### Clone and install
 
 ```bash
-git clone https://github.com/erfianugrah/sbshift.git
-cd sbshift
+git clone https://github.com/erfianugrah/pgmig.git
+cd pgmig
 bun install
 ```
 
 ### Compiled binary (optional - no Bun needed at runtime)
 
 ```bash
-bun run build              # -> ./sbshift (standalone, embeds the Bun runtime; gitignored)
-mv sbshift ~/.local/bin/   # or anywhere on your PATH
-sbshift doctor             # same UX as `bun start doctor`
+bun run build              # -> ./pgmig (standalone, embeds the Bun runtime; gitignored)
+mv pgmig ~/.local/bin/   # or anywhere on your PATH
+pgmig doctor             # same UX as `bun start doctor`
 ```
 
 Rebuild after code changes. Tagged releases (`v*`) also publish prebuilt
@@ -136,7 +136,7 @@ cp .env.example .env
 ```
 
 The env file is authoritative over your shell environment. If you have a conflicting variable
-already exported, sbshift warns you. Use `--no-env-file` to skip the env file entirely.
+already exported, pgmig warns you. Use `--no-env-file` to skip the env file entirely.
 
 All commands accept these global options:
 
@@ -145,7 +145,7 @@ All commands accept these global options:
 | `-c, --config <path>` | `migrate.config.yaml` | Path to the config file |
 | `--env-file <path>` | `.env` if present | Secrets file to load (authoritative over inherited env) |
 | `--no-env-file` | off | Skip loading any env file; use inherited environment as-is |
-| `--log-file <path>` | `logs/sbshift-<command>-<timestamp>.log` | Mirror all logs to this file (survives terminal/SSH loss) |
+| `--log-file <path>` | `logs/pgmig-<command>-<timestamp>.log` | Mirror all logs to this file (survives terminal/SSH loss) |
 | `--no-log-file` | off | Disable the log file (terminal only) |
 
 | Variable | Where to find it (Supabase Dashboard) | Required for | Example |
@@ -178,9 +178,9 @@ tables:
 
 # Optional: change default names
 # replication:
-#   publication: sbshift_pub
-#   slot: sbshift_slot
-#   subscription: sbshift_sub
+#   publication: pgmig_pub
+#   slot: pgmig_slot
+#   subscription: pgmig_sub
 
 # Optional: only if you want to copy non-database config
 # configSync:
@@ -870,7 +870,7 @@ bun start rehearse writer --ledger ledger/written_ids.log
 
 ## Safety Model
 
-sbshift is designed to be **safe by default**. Every command is read-only unless you explicitly
+pgmig is designed to be **safe by default**. Every command is read-only unless you explicitly
 opt in to mutations.
 
 ### Read-only by default

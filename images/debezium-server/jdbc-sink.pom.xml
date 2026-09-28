@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- The extra-jar manifest for sbshift's DebeziumEngine image: the no-Kafka JDBC sink + its
+<!-- The extra-jar manifest for pgmig's DebeziumEngine image: the no-Kafka JDBC sink + its
      transitive deps + the Postgres driver. The stock quay.io/debezium/server image bundles 14
      messaging sinks (kafka, kinesis, pubsub, redis, …) but NOT debezium-server-jdbc, and ships
      no target-DB driver. This pom IS that manifest (spike finding #3).
@@ -10,7 +10,7 @@
      (HETEROGENEOUS.md §5). -->
 <project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
-  <groupId>dev.sbshift</groupId>
+  <groupId>dev.pgmig</groupId>
   <artifactId>dbz-jdbc-sink-deps</artifactId>
   <version>1.0</version>
   <packaging>pom</packaging>

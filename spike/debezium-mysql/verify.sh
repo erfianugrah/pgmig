@@ -18,11 +18,11 @@ snap=$(pg "SELECT count(*) FROM customers")
 echo "snapshot rows in Postgres.customers: ${snap}  (expect 4)"
 
 echo "── inserting a new row in MySQL (CDC path) ──"
-my "INSERT INTO customers (first_name,last_name,email) VALUES ('Ada','Lovelace','ada@sbshift.dev')"
+my "INSERT INTO customers (first_name,last_name,email) VALUES ('Ada','Lovelace','ada@pgmig.dev')"
 
 echo "── waiting for the CDC row to stream through ──"
 for i in $(seq 1 20); do
-  n=$(pg "SELECT count(*) FROM customers WHERE email='ada@sbshift.dev'")
+  n=$(pg "SELECT count(*) FROM customers WHERE email='ada@pgmig.dev'")
   if [ "$n" = "1" ]; then break; fi
   sleep 2
 done

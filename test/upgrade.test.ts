@@ -150,10 +150,10 @@ describe("median", () => {
 
 describe("lab naming + urls", () => {
   test("deterministic names per major pair", () => {
-    expect(oldContainerName(15)).toBe("sbshift-pgup-old-15");
-    expect(labContainerName(15, 17)).toBe("sbshift-pgup-lab-15-17");
-    expect(labImageTag(15, 17)).toBe("sbshift-pgupgrade:15-17");
-    expect(labImageTag(15, 17, "supabase")).toBe("sbshift-pgupgrade-sb:15-17");
+    expect(oldContainerName(15)).toBe("pgmig-pgup-old-15");
+    expect(labContainerName(15, 17)).toBe("pgmig-pgup-lab-15-17");
+    expect(labImageTag(15, 17)).toBe("pgmig-pgupgrade:15-17");
+    expect(labImageTag(15, 17, "supabase")).toBe("pgmig-pgupgrade-sb:15-17");
     expect(labUrls().source).toContain(":55440/");
     expect(labUrls().target).toContain(":55441/");
   });

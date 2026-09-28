@@ -25,8 +25,8 @@ import { DebeziumEngine } from "../../src/engine/debezium.ts";
 import { signOffSchema, translate } from "../../src/steps/translate.ts";
 
 const COMPOSE = ["docker", "compose", "-f", "test/heterogeneous/docker-compose.sqlserver.yml"];
-const NET = "sbshift-dbz-it-mssql";
-const SA_PW = "Sbshift!Passw0rd";
+const NET = "pgmig-dbz-it-mssql";
+const SA_PW = "Pgmig!Passw0rd";
 
 // In-network connection strings: the rendered Debezium config runs INSIDE the container on the
 // `it` network, so it addresses the services by their compose names. encrypt is off (self-signed).
@@ -44,8 +44,8 @@ const cfg = ConfigSchema.parse({
 // biome-ignore lint/suspicious/noExplicitAny: harness secrets shape; only the two URLs are read
 const secrets = { SOURCE_DB_URL, TARGET_DB_URL } as any;
 
-process.env.SBSHIFT_DBZ_NETWORK = NET;
-process.env.SBSHIFT_DBZ_METRICS_PORT = "18081"; // distinct from the MySQL harness's 18080
+process.env.PGMIG_DBZ_NETWORK = NET;
+process.env.PGMIG_DBZ_METRICS_PORT = "18081"; // distinct from the MySQL harness's 18080
 // reconcile/watch/cutover/translate run in THIS (host) process and read SOURCE_DB_URL to query
 // SQL Server directly — they need the published host port, not the in-network name.
 process.env.SOURCE_DB_URL = `sqlserver://sa:${SA_PW}@127.0.0.1:51433/inventory`;
@@ -76,7 +76,7 @@ const sqlcmd = (sql: string, db = "master") =>
 
 async function main() {
   console.log("── build the engine image ──");
-  sh(["docker", "build", "-t", "sbshift/debezium-server:3.6.0.CR1", "images/debezium-server/"]);
+  sh(["docker", "build", "-t", "pgmig/debezium-server:3.6.0.CR1", "images/debezium-server/"]);
 
   console.log("── bring up SQL Server + Postgres ──");
   sh([...COMPOSE, "up", "-d", "--wait"]);
@@ -96,15 +96,15 @@ async function main() {
   );
   sqlcmd(
     "INSERT INTO dbo.customers (first_name,last_name,email) VALUES " +
-      "(N'Sally',N'Thomas',N'sally@sbshift.dev'),(N'George',N'Bailey',N'george@sbshift.dev')," +
-      "(N'Edward',N'Walker',N'ed@sbshift.dev'),(N'Anne',N'Kretchmar',N'anne@sbshift.dev');",
+      "(N'Sally',N'Thomas',N'sally@pgmig.dev'),(N'George',N'Bailey',N'george@pgmig.dev')," +
+      "(N'Edward',N'Walker',N'ed@pgmig.dev'),(N'Anne',N'Kretchmar',N'anne@pgmig.dev');",
     "inventory",
   );
 
   // biome-ignore lint/suspicious/noExplicitAny: Db sentinels — debezium ignores source/target
   const NODB = null as any;
   const pg = postgres(TARGET_HOST_URL, { idle_timeout: 5 });
-  const outDir = mkdtempSync(join(tmpdir(), "sbshift-harness-mssql-schema-"));
+  const outDir = mkdtempSync(join(tmpdir(), "pgmig-harness-mssql-schema-"));
   let failed = false;
   try {
     console.log("── translate: draft + apply the target schema, then sign off (the gate) ──");
@@ -130,13 +130,12 @@ async function main() {
 
     console.log("── CDC: insert a row in SQL Server ──");
     sqlcmd(
-      "INSERT INTO dbo.customers (first_name,last_name,email) VALUES (N'Ada',N'Lovelace',N'ada@sbshift.dev');",
+      "INSERT INTO dbo.customers (first_name,last_name,email) VALUES (N'Ada',N'Lovelace',N'ada@pgmig.dev');",
       "inventory",
     );
     const after = await waitForCount(pg, 5, 45);
     assert(after === 5, `post-insert rows = ${after}, expected 5`);
-    const [row] =
-      await pg`SELECT first_name,last_name FROM customers WHERE email='ada@sbshift.dev'`;
+    const [row] = await pg`SELECT first_name,last_name FROM customers WHERE email='ada@pgmig.dev'`;
     assert(row?.first_name === "Ada" && row?.last_name === "Lovelace", "CDC row content mismatch");
 
     console.log("── reconcile: count + portable aggregates (expect PASS) ──");
@@ -149,13 +148,13 @@ async function main() {
     console.log("── cutover: schema sign-off gate + CDC-LSN write-stop gate + drain + stop CDC ──");
     await new DebeziumEngine().cutover(NODB, pg, cfg, { maxLagWaitSec: 45, outDir });
     const running = execSync("docker ps --format '{{.Names}}'", { encoding: "utf8" });
-    assert(!/sbshift-dbz-dbz/.test(running), "cutover did not stop the Debezium container");
+    assert(!/pgmig-dbz-dbz/.test(running), "cutover did not stop the Debezium container");
 
     console.log("\nHARNESS PASS ✓");
   } catch (e) {
     failed = true;
     console.error(`\nHARNESS FAIL ✗ — ${e instanceof Error ? e.message : String(e)}`);
-    console.error("inspect: docker logs sbshift-dbz-dbz");
+    console.error("inspect: docker logs pgmig-dbz-dbz");
   } finally {
     await pg.end({ timeout: 5 });
     console.log("── teardown ──");

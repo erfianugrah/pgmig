@@ -10,7 +10,7 @@ dump/
 schema_dump/
 migrate.config.yaml
 logs/
-.sbshift-test-creds
+.pgmig-test-creds
 
 # throwaway live-test config (points at ephemeral projects)
 migrate.test.yaml
@@ -18,7 +18,7 @@ ledger.root/
 
 # sandbox command artifacts (throwaway Supabase pair)
 migrate.sandbox.yaml
-.sbshift-sandbox.json
+.pgmig-sandbox.json
 
 # upgrade rehearsal lab artifacts (throwaway)
 .upgrade-lab/
@@ -28,5 +28,5 @@ capture/
 .pi/harness-report.json
 
 # compiled binary
-/sbshift
-/sbshift-bun-*
+/pgmig
+/pgmig-bun-*

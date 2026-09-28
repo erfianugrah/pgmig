@@ -13,7 +13,7 @@ import {
  * Debezium ReplicationEngine can stream it into Postgres/Supabase.
  *
  * `detect`/`verify` SQL is source-engine SQL (MySQL / T-SQL) and is documentation-grade today
- * — `sbshift guide <engine>` prints these; nothing executes them until the DebeziumEngine
+ * — `pgmig guide <engine>` prints these; nothing executes them until the DebeziumEngine
  * runtime ships a driver. Provenance is the Debezium connector reference + vendor docs (the
  * authoritative CDC-out-of-engine source), so `kb drift` can age-check them like every other
  * KB item.
@@ -28,9 +28,9 @@ const MYSQL: SourcePrepItem[] = [
     title: "MySQL CDC user grants",
     guidance:
       "Create a dedicated CDC user with the minimum grants the Debezium connector needs:\n" +
-      "  CREATE USER 'sbshift'@'%' IDENTIFIED BY '<pw>';\n" +
+      "  CREATE USER 'pgmig'@'%' IDENTIFIED BY '<pw>';\n" +
       "  GRANT SELECT, RELOAD, SHOW DATABASES, REPLICATION SLAVE, REPLICATION CLIENT\n" +
-      "    ON *.* TO 'sbshift'@'%';\n" +
+      "    ON *.* TO 'pgmig'@'%';\n" +
       "  FLUSH PRIVILEGES;",
     detect: { sql: "SHOW GRANTS FOR CURRENT_USER" },
     verify: {
@@ -179,9 +179,9 @@ const MYSQL: SourcePrepItem[] = [
       "  zero-dates     → NULL (Debezium zero-date fallback); confirm per column\n" +
       "  DATETIME/TIMESTAMP → timestamptz with the source session tz pinned\n" +
       "  DECIMAL        → numeric(p,s) preserved; warn on decimal.handling.mode rounding\n" +
-      "Run `sbshift translate`: it never auto-applies — it writes <out-dir>/target-schema.sql + " +
+      "Run `pgmig translate`: it never auto-applies — it writes <out-dir>/target-schema.sql + " +
       "target-schema.decisions.json (out-dir defaults to ledger/), records each decision, and " +
-      "cutover refuses to run until you review + `sbshift translate --sign-off`.",
+      "cutover refuses to run until you review + `pgmig translate --sign-off`.",
     provenance: {
       source: "https://debezium.io/documentation/reference/stable/connectors/mysql.html",
       lastSynced: "2026-06-24",

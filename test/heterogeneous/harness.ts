@@ -24,7 +24,7 @@ import { DebeziumEngine } from "../../src/engine/debezium.ts";
 import { signOffSchema, translate } from "../../src/steps/translate.ts";
 
 const COMPOSE = ["docker", "compose", "-f", "test/heterogeneous/docker-compose.yml"];
-const NET = "sbshift-dbz-it";
+const NET = "pgmig-dbz-it";
 
 // In-network connection strings: the rendered Debezium config runs INSIDE the container on the
 // `it` network, so it addresses the services by their compose names.
@@ -43,8 +43,8 @@ const cfg = ConfigSchema.parse({
 // biome-ignore lint/suspicious/noExplicitAny: harness secrets shape; only the two URLs are read
 const secrets = { SOURCE_DB_URL, TARGET_DB_URL } as any;
 
-process.env.SBSHIFT_DBZ_NETWORK = NET;
-process.env.SBSHIFT_DBZ_METRICS_PORT = "18080"; // published 8080 → host:18080 for the health probe
+process.env.PGMIG_DBZ_NETWORK = NET;
+process.env.PGMIG_DBZ_METRICS_PORT = "18080"; // published 8080 → host:18080 for the health probe
 // reconcile/watch/cutover run in THIS (host) process and read SOURCE_DB_URL to query MySQL
 // directly — they need the published host port, not the in-network name the rendered config uses.
 process.env.SOURCE_DB_URL = "mysql://debezium:dbz@127.0.0.1:53306/inventory";
@@ -67,7 +67,7 @@ const mysql = (sql: string) =>
 
 async function main() {
   console.log("── build the engine image ──");
-  sh(["docker", "build", "-t", "sbshift/debezium-server:3.6.0.CR1", "images/debezium-server/"]);
+  sh(["docker", "build", "-t", "pgmig/debezium-server:3.6.0.CR1", "images/debezium-server/"]);
 
   console.log("── bring up MySQL + Postgres ──");
   sh([...COMPOSE, "up", "-d", "--wait"]);
@@ -78,7 +78,7 @@ async function main() {
   // Production schema-translation out-dir: translate() writes target-schema.sql + the decisions
   // manifest here, and cutover's assertSchemaSignedOff() reads it back. A throwaway temp dir keeps
   // the harness self-contained. cutover is passed { outDir } so the gate finds this manifest.
-  const outDir = mkdtempSync(join(tmpdir(), "sbshift-harness-schema-"));
+  const outDir = mkdtempSync(join(tmpdir(), "pgmig-harness-schema-"));
   let failed = false;
   try {
     console.log(
@@ -107,12 +107,11 @@ async function main() {
 
     console.log("── CDC: insert a row in MySQL ──");
     mysql(
-      "INSERT INTO customers (first_name,last_name,email) VALUES ('Ada','Lovelace','ada@sbshift.dev')",
+      "INSERT INTO customers (first_name,last_name,email) VALUES ('Ada','Lovelace','ada@pgmig.dev')",
     );
     const after = await waitForCount(pg, 5, 30);
     assert(after === 5, `post-insert rows = ${after}, expected 5`);
-    const [row] =
-      await pg`SELECT first_name,last_name FROM customers WHERE email='ada@sbshift.dev'`;
+    const [row] = await pg`SELECT first_name,last_name FROM customers WHERE email='ada@pgmig.dev'`;
     assert(row?.first_name === "Ada" && row?.last_name === "Lovelace", "CDC row content mismatch");
 
     console.log("── reconcile: count + portable aggregates (expect PASS) ──");
@@ -126,16 +125,16 @@ async function main() {
     await new DebeziumEngine().cutover(NODB, pg, cfg, { maxLagWaitSec: 30, outDir });
     // cutover stops the container — confirm it is gone from the running set
     const running = execSync("docker ps --format '{{.Names}}'", { encoding: "utf8" });
-    assert(!/sbshift-dbz-dbz/.test(running), "cutover did not stop the Debezium container");
+    assert(!/pgmig-dbz-dbz/.test(running), "cutover did not stop the Debezium container");
 
     console.log("\nHARNESS PASS ✓");
   } catch (e) {
     failed = true;
     console.error(`\nHARNESS FAIL ✗ — ${e instanceof Error ? e.message : String(e)}`);
-    console.error("inspect: docker logs sbshift-dbz-dbz");
+    console.error("inspect: docker logs pgmig-dbz-dbz");
     // Teardown removes the container, so print its log before it goes.
     try {
-      console.error(execSync("docker logs --tail 120 sbshift-dbz-dbz 2>&1", { encoding: "utf8" }));
+      console.error(execSync("docker logs --tail 120 pgmig-dbz-dbz 2>&1", { encoding: "utf8" }));
     } catch {
       /* container may never have started */
     }

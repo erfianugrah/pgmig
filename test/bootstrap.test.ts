@@ -89,7 +89,7 @@ describe("dump/restore command builders", () => {
     ]);
   });
 
-  test("dumpSchemaCmd: schema-only, strips sbshift-managed pub/sub + owners/ACLs", () => {
+  test("dumpSchemaCmd: schema-only, strips pgmig-managed pub/sub + owners/ACLs", () => {
     expect(dumpSchemaCmd(SRC, "/o/schema.sql")).toEqual([
       "pg_dump",
       "--schema-only",

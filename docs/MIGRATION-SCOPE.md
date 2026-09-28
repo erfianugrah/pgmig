@@ -10,34 +10,34 @@ take and a different vague "some things are not stored in your database" list:
 | [Restore to a new project (clone)](https://supabase.com/docs/guides/platform/clone-project) | physical backup / PITR, fully automated | **beta**; paid + physical backups required; clone stays in source region |
 
 This document consolidates all three **plus the Management-API surface** into a
-single scope. `sbshift` adds a fourth mechanism — **near-zero-downtime logical
+single scope. `pgmig` adds a fourth mechanism — **near-zero-downtime logical
 replication** — which carries the same in-DB data as a dump but, like every
 other method, carries **none** of the non-database artifacts. Those are the
 "some things" each guide hand-waves at; they are enumerated below in full.
 
 The clone guide automates the most: its physical-backup path replicates **compute
 size, disk attributes, SSL enforcement, network restrictions** plus data+auth+roles,
-and lists what it still leaves behind. sbshift's logical-replication path carries
+and lists what it still leaves behind. pgmig's logical-replication path carries
 *less* automatically (row data only), so the manual surface is *larger* — which is
 why the `config-sync` / `provision` / `verify` / `claim` commands exist.
 
 ---
 
-## A. Carried by the database itself (dump/restore, clone, OR sbshift replication)
+## A. Carried by the database itself (dump/restore, clone, OR pgmig replication)
 
 These live in Postgres, so any data-plane method moves them — but with caveats.
 
 | Artifact | Carrier | Caveat |
 |---|---|---|
-| Schema (tables, views, functions, procedures, triggers) | `schema.sql` / clone | sbshift logical repl carries **data only** — `bootstrap` loads schema first (pre-step). For a Supabase source it excludes the ~27 managed schemas (`auth`/`storage`/`extensions`/…) AND filters cluster objects a plain dump still emits (event triggers, `supabase_realtime` pub, `COMMENT ON EXTENSION`, `SET transaction_timeout`) that would abort the restore as non-superuser `postgres` — same as `supabase db dump`; `--all-schemas` forces a full dump |
-| Table data + indexes | `data.sql` / clone / **sbshift replicate** | — |
+| Schema (tables, views, functions, procedures, triggers) | `schema.sql` / clone | pgmig logical repl carries **data only** — `bootstrap` loads schema first (pre-step). For a Supabase source it excludes the ~27 managed schemas (`auth`/`storage`/`extensions`/…) AND filters cluster objects a plain dump still emits (event triggers, `supabase_realtime` pub, `COMMENT ON EXTENSION`, `SET transaction_timeout`) that would abort the restore as non-superuser `postgres` — same as `supabase db dump`; `--all-schemas` forces a full dump |
+| Table data + indexes | `data.sql` / clone / **pgmig replicate** | — |
 | RLS policies | part of schema | `verify` asserts they're enabled on the target post-cutover |
 | DB roles, permissions, users | `bootstrap` (`pg_dumpall --roles-only --no-role-passwords`) / clone | **custom LOGIN roles lose passwords** — reset by hand (`ALTER USER … WITH PASSWORD`). For a Supabase source, `bootstrap` filters out the reserved roles (`anon`/`authenticated`/`supabase_*`/`postgres`/…) the same way `supabase db dump --role-only` does — only your app roles restore |
-| Auth user data (`auth` schema: accounts, hashed passwords) | `auth.sql` data dump / clone | sbshift: dump+restore `auth` BEFORE replicate (the `auth.users` FK trap); the dump excludes `auth.schema_migrations` - the one auth table that is SELECT-only for `postgres` on managed targets, and the target has its own ledger (verified 2026-07-30) |
-| Sequences | DDL in schema | **values don't replicate** → sbshift `cutover` resyncs every owned sequence |
+| Auth user data (`auth` schema: accounts, hashed passwords) | `auth.sql` data dump / clone | pgmig: dump+restore `auth` BEFORE replicate (the `auth.users` FK trap); the dump excludes `auth.schema_migrations` - the one auth table that is SELECT-only for `postgres` on managed targets, and the target has its own ledger (verified 2026-07-30) |
+| Sequences | DDL in schema | **values don't replicate** → pgmig `cutover` resyncs every owned sequence |
 | `supabase_migrations` schema (CLI migration history) | only if you dump it **separately** | `supabase db dump --schema supabase_migrations` (schema + data) |
 | `auth` / `storage` schema customizations (your triggers, RLS) | only if diffed separately | `supabase db diff --schema auth,storage` then apply |
-| Generated columns (e.g. STORED tsvector) | recomputed on target | excluded from sbshift's reconcile hash (hashing them = false mismatch) |
+| Generated columns (e.g. STORED tsvector) | recomputed on target | excluded from pgmig's reconcile hash (hashing them = false mismatch) |
 
 ## B. In-DB but needs explicit handling
 
@@ -52,9 +52,9 @@ These live in Postgres, so any data-plane method moves them — but with caveats
 ## C. NOT in the database — the "some things" (exhaustive)
 
 Every guide lists a *subset*; this is the union, with the carrier and the
-sbshift command for each.
+pgmig command for each.
 
-| # | Artifact | sbshift | Endpoint / tool | Gotcha |
+| # | Artifact | pgmig | Endpoint / tool | Gotcha |
 |---|---|---|---|---|
 | 1 | Edge Functions (code) | `functions` | `supabase functions download/deploy` | import maps + `deno.json` are **not** downloaded — re-add by hand |
 | 2 | Edge Function / project secrets (env) | `config-sync` (`projectSecrets`, opt-in) | `GET/POST /secrets` | plaintext; dry-run redacts |
@@ -66,7 +66,7 @@ sbshift command for each.
 | 8 | PostgREST / Data API settings | `config-sync` (`postgrest`) | `/postgrest` | `jwt_secret` is excluded intentionally (new project keeps new signing material) |
 | 9 | Storage config (file size limit, etc.) | `config-sync` (`storage`) | `/config/storage` | — |
 | 10 | Storage buckets (configs) | NOT migrated - the schema dump excludes the managed `storage` schema (verified 2026-07-30: `storage.buckets` empty on the target after bootstrap) | `/storage/buckets` | recreate by hand, or let the `storage` push auto-create them - they land **private** regardless of source visibility; restore `public = true` after |
-| 11 | **Storage objects (actual S3 files)** | `storage` | JS copy script / Colab | bytes are never in any dump; on the sbshift track the bucket/object metadata does not arrive either (the *clone* track carries metadata but not bytes) |
+| 11 | **Storage objects (actual S3 files)** | `storage` | JS copy script / Colab | bytes are never in any dump; on the pgmig track the bucket/object metadata does not arrive either (the *clone* track carries metadata but not bytes) |
 | 12 | Postgres config (API-exposed GUCs) | `config-sync` (`dbPostgres`, opt-in) | `/config/database/postgres` | only the API-exposed subset (see B for the SQL-level ones) |
 | 13 | Pooler (Supavisor) config | `config-sync` (`dbPooler`) | `/config/database/pooler` | — |
 | 14 | Compute instance size | `provision` (`compute`) | `PATCH /billing/addons` | **billable**; under-provisioning the target risks cutover load |
@@ -89,7 +89,7 @@ The Management API exposes these **read-only** — no write endpoint exists.
 | Entitlements (compute availability, HA, read-replica eligibility) | derived from the target org's plan |
 
 The only org-level *action* is **claiming a project into a different org**
-(`sbshift claim`) — see [project transfers](https://supabase.com/docs/guides/platform/project-transfer).
+(`pgmig claim`) — see [project transfers](https://supabase.com/docs/guides/platform/project-transfer).
 
 ---
 
@@ -97,7 +97,7 @@ The only org-level *action* is **claiming a project into a different org**
 
 Even Supabase→Supabase is not "click clone and done". Walking the dashboard nav, here is every
 settings surface, the API endpoint behind it, and who owns it on a migration. `✅` = automated by
-a sbshift command; `🟡` = opt-in flag; `✋` = manual; `🚫` = never / not migratable.
+a pgmig command; `🟡` = opt-in flag; `✋` = manual; `🚫` = never / not migratable.
 
 ### Project Settings (`/settings/*`)
 
@@ -183,7 +183,7 @@ source 404 = SAML off = skip; a target 404 on POST = enable SAML on the target f
 | Realtime | settings | ✅ `config-sync` (`realtime`) |
 | Realtime | publications | ✋ re-enable per table |
 
-## sbshift coverage at a glance
+## pgmig coverage at a glance
 
 ```
 In-DB data ............ replicate + watch + reconcile + cutover  (zero-downtime)
@@ -195,7 +195,7 @@ Integration secrets ... config-sync  (secrets / projectSecrets — opt-in, never
 Billable infra ........ provision    (compute, disk, pitr, ipv4, backupSchedule — confirm-gated)
 Edge Functions ........ functions
 Storage objects ....... storage
-Health gate ........... verify       (advisors: RLS/PK/etc.; API is deprecated upstream, sbshift fails closed on advisor fetch errors)
+Health gate ........... verify       (advisors: RLS/PK/etc.; API is deprecated upstream, pgmig fails closed on advisor fetch errors)
 Invisible SQL GUCs .... doctor       (pg_db_role_setting — detect + warn, manual re-apply)
 Auth sub-resources .... config-sync  (thirdPartyAuth, ssoProviders — opt-in, additive)
 Org move .............. claim

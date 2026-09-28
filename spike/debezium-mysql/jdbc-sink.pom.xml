@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Resolves the Debezium Server JDBC sink + its transitive deps + the Postgres driver.
      SPIKE FINDING: the standard quay.io/debezium/server image bundles 14 sinks (kafka,
-     kinesis, pubsub, redis, …) but NOT debezium-server-jdbc. sbshift's production
+     kinesis, pubsub, redis, ...) but NOT debezium-server-jdbc. pgmig's production
      DebeziumEngine image must add the sink jars + target driver itself. This pom IS that
      manifest. -->
 <project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
-  <groupId>dev.sbshift</groupId>
+  <groupId>dev.pgmig</groupId>
   <artifactId>dbz-jdbc-sink-deps</artifactId>
   <version>1.0</version>
   <packaging>pom</packaging>

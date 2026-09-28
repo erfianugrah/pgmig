@@ -43,10 +43,10 @@ jobs:
       - name: Install bun
         run: curl -fsSL https://bun.sh/install -o /tmp/bun.sh && bash /tmp/bun.sh "bun-v1.3.13" && echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
       - run: bun install --frozen-lockfile
-      - run: bun build ./src/cli.ts --compile --outfile sbshift
-      - run: ./sbshift --version
+      - run: bun build ./src/cli.ts --compile --outfile pgmig
+      - run: ./pgmig --version
 
-  # Assert every Supabase Management API (method, path) sbshift calls still
+  # Assert every Supabase Management API (method, path) pgmig calls still
   # exists in the live OpenAPI spec - fail loudly on upstream rename/removal
   # instead of a runtime 404 mid-migration.
   api-drift:

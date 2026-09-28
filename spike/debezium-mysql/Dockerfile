@@ -4,7 +4,7 @@
 #  - The base image ships NO JDBC sink (debezium-server-jdbc is absent — only messaging sinks
 #    like kafka/kinesis/redis are bundled). We resolve it + its transitive deps via Maven.
 #  - The base image ships NO target-DB driver (docs: "add the driver to lib/"). Pulled by the pom.
-# This stage's /jars is the exact extra-jar manifest sbshift's production DebeziumEngine image
+# This stage's /jars is the exact extra-jar manifest pgmig's production DebeziumEngine image
 # needs over the stock server image.
 FROM maven:3.9-eclipse-temurin-21 AS deps
 WORKDIR /build

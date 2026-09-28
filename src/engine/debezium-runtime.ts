@@ -27,7 +27,7 @@
  *
  * Why a pre-release is acceptable at all: finding #2 — Debezium Server's JDBC sink gives weaker
  * delivery guarantees than Kafka Connect (no exactly-once, no offset management, no auto-retry).
- * sbshift therefore NEVER trusts the sink: the count + per-column-aggregate reconcile and the
+ * pgmig therefore NEVER trusts the sink: the count + per-column-aggregate reconcile and the
  * fail-closed cutover gate are load-bearing for the heterogeneous path. That distrust is
  * independent of GA status, so a pre-release build changes the support label, not the safety model.
  */
@@ -40,7 +40,7 @@ export const DEBEZIUM_SERVER_VERSION = "3.6.0.CR1";
  * the JDBC-sink jars + the Postgres driver layered in — finding #3). Tagged with the pinned
  * version so the build and the runtime can never silently diverge.
  */
-export const DEBEZIUM_IMAGE = `sbshift/debezium-server:${DEBEZIUM_SERVER_VERSION}`;
+export const DEBEZIUM_IMAGE = `pgmig/debezium-server:${DEBEZIUM_SERVER_VERSION}`;
 
 /** Maven coordinates of the no-Kafka JDBC sink (must be layered into a custom image — finding #3). */
 export const DEBEZIUM_JDBC_SINK_ARTIFACT = "io.debezium:debezium-server-jdbc";

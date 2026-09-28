@@ -94,7 +94,7 @@ describe("classifyRows", () => {
 // M-4: reconcileLedger was unexported and untested. It's now exported.
 // Use a mock Db that returns controlled results without a real Postgres connection.
 describe("reconcileLedger", () => {
-  const dir = join(tmpdir(), `sbshift-test-${Date.now()}`);
+  const dir = join(tmpdir(), `pgmig-test-${Date.now()}`);
   mkdirSync(dir, { recursive: true });
 
   function makeCfg(ledgerPath: string) {

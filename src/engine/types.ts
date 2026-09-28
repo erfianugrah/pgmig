@@ -24,14 +24,14 @@ export interface CutoverOpts {
 }
 
 /**
- * The data-plane seam (HETEROGENEOUS.md §3). sbshift's control plane — the `run` state machine
+ * The data-plane seam (HETEROGENEOUS.md §3). pgmig's control plane — the `run` state machine
  * and the individual CLI step commands — calls these methods; the *implementation* forks by
  * source engine while the step *vocabulary* survives.
  *
  * Today the only impl is `native-pg`: CREATE SUBSCRIPTION copy_data=true (snapshot + CDC in
  * one), pg_subscription_rel polling, and the row::text byte-hash reconcile. A future
  * `debezium` impl (HETEROGENEOUS.md §5) wraps Debezium for MySQL/SQL Server sources, where
- * reconcile downgrades to count + per-column aggregates. Method names mirror sbshift's
+ * reconcile downgrades to count + per-column aggregates. Method names mirror pgmig's
  * existing phases (the §3 fork table), so the engine is a drop-in behind the same commands.
  *
  * Signatures match today's step functions exactly: connections + config are passed per call

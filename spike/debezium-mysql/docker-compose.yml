@@ -1,7 +1,7 @@
 # Throwaway spike (HETEROGENEOUS.md §5 step 0): prove MySQL binlog → Debezium Server JDBC sink
 # → Postgres with NO Kafka. This is the data-plane topology the DebeziumEngine will manage.
 # Run: docker compose up --build -d ; then ./verify.sh
-name: sbshift-dbz-spike
+name: pgmig-dbz-spike
 
 services:
   mysql:

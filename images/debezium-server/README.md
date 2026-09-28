@@ -1,4 +1,4 @@
-# sbshift DebeziumEngine image
+# pgmig DebeziumEngine image
 
 The production container image for the heterogeneous data plane (`DebeziumEngine`,
 [`docs/HETEROGENEOUS.md`](../../docs/HETEROGENEOUS.md) §3): Debezium Server + the no-Kafka JDBC
@@ -8,7 +8,7 @@ maintained asset.
 ## Build
 
 ```bash
-docker build -t sbshift/debezium-server:3.6.0.CR1 images/debezium-server/
+docker build -t pgmig/debezium-server:3.6.0.CR1 images/debezium-server/
 ```
 
 The tag must match the pin in [`src/engine/debezium-runtime.ts`](../../src/engine/debezium-runtime.ts)

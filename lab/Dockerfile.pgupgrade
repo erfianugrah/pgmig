@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# Dual-major Postgres lab image for `sbshift upgrade lab`.
+# Dual-major Postgres lab image for `pgmig upgrade lab`.
 #
 # pg_upgrade needs the OLD and NEW major's binaries on one host; no official
 # postgres image ships two majors, so we install both from the PGDG apt repo.

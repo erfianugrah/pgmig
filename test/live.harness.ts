@@ -1,10 +1,10 @@
 /**
- * End-to-end sbshift validation against a REAL throwaway Supabase project pair.
+ * End-to-end pgmig validation against a REAL throwaway Supabase project pair.
  *
  *   SUPABASE_ACCESS_TOKEN=sbp_... bun run test/live.harness.ts <org-id> [rows]
  *
  * Creates two throwaway projects (source + target, cross-region), loads the
- * annoying schema on both, seeds the source, runs the full sbshift pipeline
+ * annoying schema on both, seeds the source, runs the full pgmig pipeline
  * (doctor → preflight → replicate → watch → reconcile → cutover), asserts that
  * the resynced sequence prevents a post-cutover id collision, then DELETES both
  * projects. One command, repeatable, self-tearing-down.
@@ -57,8 +57,8 @@ async function main(): Promise<void> {
     const srcPw = randPw();
     const tgtPw = randPw();
     [srcRef, tgtRef] = await Promise.all([
-      api.createProject("sbshift-livetest-src", ORG_ID, srcPw, SRC_REGION),
-      api.createProject("sbshift-livetest-tgt", ORG_ID, tgtPw, TGT_REGION),
+      api.createProject("pgmig-livetest-src", ORG_ID, srcPw, SRC_REGION),
+      api.createProject("pgmig-livetest-tgt", ORG_ID, tgtPw, TGT_REGION),
     ]);
     log.ok(`src=${srcRef}  tgt=${tgtRef}`);
 
@@ -85,9 +85,9 @@ async function main(): Promise<void> {
       source: { ref: srcRef },
       target: { ref: tgtRef },
       replication: {
-        publication: "sbshift_pub",
-        slot: "sbshift_slot",
-        subscription: "sbshift_sub",
+        publication: "pgmig_pub",
+        slot: "pgmig_slot",
+        subscription: "pgmig_sub",
         copyData: true,
         tables: TABLES,
       },
@@ -108,7 +108,7 @@ async function main(): Promise<void> {
       log.step("bootstrap target (extensions + roles + schema, Supabase-aware)");
       const boot = await bootstrap(source, target, cfg, secrets, {
         confirm: true,
-        outDir: "/tmp/sbshift-live-bootstrap",
+        outDir: "/tmp/pgmig-live-bootstrap",
       });
       if (!boot.ok) throw new Error("bootstrap FAILED");
       const [tgtHasUsers] = await target`SELECT to_regclass('public.users') IS NOT NULL AS ok`;

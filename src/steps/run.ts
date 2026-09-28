@@ -106,8 +106,15 @@ async function runPhase(
   opts: RunOptions,
 ): Promise<void> {
   switch (phase) {
-    // preflight is a pre-check, not a data-plane op — it stays outside the engine seam.
+    // preflight is a pre-check, not a data-plane op - it stays outside the engine seam, but it is
+    // also postgres-only today (see preflight.ts): skip it for the Debezium engine rather than
+    // let it throw on a source connection that isn't a Postgres wire client, or block the
+    // otherwise-working heterogeneous pipeline on a check that doesn't exist yet.
     case "preflight":
+      if (engine.kind !== "native-pg") {
+        log.warn(`preflight has no Debezium-engine equivalent yet - skipping for '${engine.kind}'`);
+        return;
+      }
       return preflight(source, target, cfg);
     case "replicate":
       return engine.replicate(source, target, cfg, secrets);

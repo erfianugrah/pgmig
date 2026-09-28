@@ -74,11 +74,16 @@ export function categorizePgType(dataType: string): ColumnTypeCategory {
   return "other";
 }
 
-/** Quote an identifier for the given engine. Inputs are validated bare idents upstream (config). */
+/**
+ * Quote an identifier for the given engine, escaping an embedded quote char by doubling it (each
+ * dialect's own escape convention). Column names here come from live catalog discovery
+ * (`information_schema.columns` on the target), not just the ident-validated config, so an
+ * embedded backtick/bracket/quote must not be able to break out of the quoted identifier.
+ */
 function quoteIdent(engine: AggEngine, ident: string): string {
-  if (engine === "mysql") return `\`${ident}\``;
-  if (engine === "sqlserver") return `[${ident}]`;
-  return `"${ident}"`;
+  if (engine === "mysql") return `\`${ident.replace(/`/g, "``")}\``;
+  if (engine === "sqlserver") return `[${ident.replace(/]/g, "]]")}]`;
+  return `"${ident.replace(/"/g, '""')}"`;
 }
 
 /**

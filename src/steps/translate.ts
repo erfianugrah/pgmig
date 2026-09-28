@@ -1,5 +1,5 @@
 /**
- * `sbshift translate` — the guided MySQL→Postgres schema-translation gate (GUIDED-MIGRATION.md §7,
+ * `pgmig translate` — the guided MySQL→Postgres schema-translation gate (GUIDED-MIGRATION.md §7,
  * HETEROGENEOUS.md §2 item 4). Wraps the pure translator (`src/engine/schema-translate.ts`) in the
  * production workflow the KB item `mysql.schema_translation` promises:
  *
@@ -8,7 +8,7 @@
  *   2. WRITE  — persist `<out-dir>/target-schema.sql` + `<out-dir>/target-schema.decisions.json`.
  *               NEVER auto-applies (§9 caveat 1 — schema translation cannot be fully automated).
  *   3. SIGN-OFF — the operator reviews the SQL, applies it to the target, then ratifies the draft
- *               (`sbshift translate --sign-off`), flipping `signedOff` in the manifest.
+ *               (`pgmig translate --sign-off`), flipping `signedOff` in the manifest.
  *   4. GATE   — `cutover` refuses to drain unless the manifest exists AND is signed off
  *               (`assertSchemaSignedOff`), so a migration can never flip traffic onto an
  *               unreviewed translated schema.
@@ -118,7 +118,7 @@ export async function translate(
   if (cfg.source.engine === "postgres") {
     throw new Error(
       "translate: source.engine is 'postgres' — a native-PG migration needs no schema translation " +
-        "(the schema is dumped verbatim by `sbshift bootstrap`). This command is for heterogeneous " +
+        "(the schema is dumped verbatim by `pgmig bootstrap`). This command is for heterogeneous " +
         "(mysql) sources only.",
     );
   }
@@ -162,9 +162,9 @@ export async function translate(
   const paths = schemaArtifactPaths(opts.outDir);
   mkdirSync(opts.outDir, { recursive: true });
   const header =
-    `-- sbshift target schema — DRAFTED ${manifest.generatedAt} from ${engine} ${manifest.source.databases.join(", ")}\n` +
-    "-- REVIEW the type decisions below, apply to the target, then `sbshift translate --sign-off`.\n" +
-    "-- sbshift NEVER auto-applies this (GUIDED-MIGRATION.md §7); cutover is gated on sign-off.\n\n";
+    `-- pgmig target schema — DRAFTED ${manifest.generatedAt} from ${engine} ${manifest.source.databases.join(", ")}\n` +
+    "-- REVIEW the type decisions below, apply to the target, then `pgmig translate --sign-off`.\n" +
+    "-- pgmig NEVER auto-applies this (GUIDED-MIGRATION.md §7); cutover is gated on sign-off.\n\n";
   writeFileSync(paths.sql, `${header}${draft.sql}\n`, { mode: 0o644 });
   writeFileSync(paths.manifest, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o644 });
   log.ok(`wrote ${paths.sql}`);
@@ -192,7 +192,7 @@ export function renderTranslate(result: TranslateResult): void {
   }
   log.info(
     "Next: review the SQL, apply it to the target (or re-run with --apply), then ratify with " +
-      "`sbshift translate --sign-off`. cutover refuses to run until you do.",
+      "`pgmig translate --sign-off`. cutover refuses to run until you do.",
   );
 }
 
@@ -201,7 +201,7 @@ function readManifest(outDir: string): SchemaManifest {
   const { manifest: path } = schemaArtifactPaths(outDir);
   if (!existsSync(path)) {
     throw new Error(
-      `translate: no schema manifest at ${path} — run \`sbshift translate\` first to draft the ` +
+      `translate: no schema manifest at ${path} — run \`pgmig translate\` first to draft the ` +
         "target schema.",
     );
   }
@@ -240,7 +240,7 @@ export function assertSchemaSignedOff(outDir: string): void {
   if (!manifest.signedOff) {
     throw new Error(
       `translate: the target schema draft at ${schemaArtifactPaths(outDir).manifest} is NOT signed ` +
-        "off. Review target-schema.sql, apply it to the target, then run `sbshift translate " +
+        "off. Review target-schema.sql, apply it to the target, then run `pgmig translate " +
         "--sign-off` before cutover. (cutover will not flip traffic onto an unreviewed schema.)",
     );
   }

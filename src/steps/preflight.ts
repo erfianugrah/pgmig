@@ -10,6 +10,13 @@ import {
 /** Read-only checks that must pass before we touch anything. Throws on hard failures. */
 export async function preflight(source: Db, target: Db, cfg: Config): Promise<void> {
   log.step("preflight");
+  if (cfg.source.engine !== "postgres") {
+    throw new Error(
+      `preflight is postgres-only (wal_level, pg_publication, replica identity) - source.engine ` +
+        `is '${cfg.source.engine}'. There is no equivalent pre-check for the Debezium engine yet; ` +
+        "run 'pgmig replicate' directly for a heterogeneous source.",
+    );
+  }
   let hardFail = false;
 
   // 1. Postgres versions

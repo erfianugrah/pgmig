@@ -198,7 +198,7 @@ export function supabaseSourceRef(cfg: Config): string {
 
 /** Secrets never live in the YAML — they come from the environment. */
 export const SecretsSchema = z.object({
-  /** Connection string for the SOURCE db used by sbshift's own admin/seed/reconcile
+  /** Connection string for the SOURCE db used by pgmig's own admin/seed/reconcile
    *  queries. Normally the direct host; may be the IPv4 pooler when running from a
    *  host without IPv6 to the direct host (then set SOURCE_REPLICATION_URL too). */
   SOURCE_DB_URL: z.string().url(),
@@ -207,7 +207,7 @@ export const SecretsSchema = z.object({
   /** OPTIONAL override for the subscription's CONNECTION string (the one the TARGET's
    *  walreceiver dials to stream WAL). MUST be the source DIRECT host — the pooler
    *  cannot stream logical replication. Set this when SOURCE_DB_URL is a pooler
-   *  (e.g. running sbshift from a host with no IPv6 route to the direct host); the
+   *  (e.g. running pgmig from a host with no IPv6 route to the direct host); the
    *  target reaches the direct host over Supabase's internal network regardless.
    *  Falls back to SOURCE_DB_URL when unset. */
   SOURCE_REPLICATION_URL: z.string().url().optional(),

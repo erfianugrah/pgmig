@@ -3,7 +3,7 @@
  * reconcile aggregate scan and the cutover write-stop gate (`SHOW MASTER STATUS`). The native-PG
  * path never needs this; only the heterogeneous engine queries a MySQL source directly.
  *
- * sbshift's `connect()` builds Postgres clients only (postgres.js), so a `mysql://` SOURCE_DB_URL
+ * pgmig's `connect()` builds Postgres clients only (postgres.js), so a `mysql://` SOURCE_DB_URL
  * cannot be queried through the `source: Db` the ReplicationEngine interface passes — the engine
  * opens its own MySQL connection here instead. Kept behind a tiny interface so callers can be
  * tested with an in-memory fake (no live MySQL in the unit suite).

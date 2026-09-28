@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Upstream drift-check (ported from sbperf). Asserts that every Supabase
- * Management API endpoint sbshift depends on still exists - with the HTTP
+ * Management API endpoint pgmig depends on still exists - with the HTTP
  * method we use - in the canonical OpenAPI spec. CI runs this so an upstream
  * rename/removal fails the build loudly rather than surfacing as a runtime
  * 404 mid-migration (or worse, mid-cutover).
@@ -9,7 +9,7 @@
  *   bun run scripts/check-api-drift.ts
  *
  * Two layers:
- *   1. PRIMARY (pass/fail): assert sbshift's endpoints exist in the LIVE spec
+ *   1. PRIMARY (pass/fail): assert pgmig's endpoints exist in the LIVE spec
  *      (api.supabase.com/api/v1-json) - the ground truth for what the deployed
  *      API actually accepts. Missing endpoint => exit 1.
  *   2. CROSS-CHECK (advisory): diff the live spec against the version-controlled
@@ -17,19 +17,19 @@
  *      FROM the API and can lag a deploy; a divergence is an early signal that
  *      upstream is mid-change. Never fails the build on its own.
  *
- * Specs are public (no auth). Overrides: SBSHIFT_API_SPEC_URL (live),
- * SBSHIFT_API_SPEC_COMPARE_URL (docs copy), SBSHIFT_NO_CROSSCHECK=1 to skip (2).
+ * Specs are public (no auth). Overrides: PGMIG_API_SPEC_URL (live),
+ * PGMIG_API_SPEC_COMPARE_URL (docs copy), PGMIG_NO_CROSSCHECK=1 to skip (2).
  */
 
-const SPEC_URL = process.env.SBSHIFT_API_SPEC_URL ?? "https://api.supabase.com/api/v1-json";
+const SPEC_URL = process.env.PGMIG_API_SPEC_URL ?? "https://api.supabase.com/api/v1-json";
 const COMPARE_URL =
-  process.env.SBSHIFT_API_SPEC_COMPARE_URL ??
+  process.env.PGMIG_API_SPEC_COMPARE_URL ??
   "https://raw.githubusercontent.com/supabase/supabase/master/apps/docs/spec/api_v1_openapi.json";
-const CROSS_CHECK = process.env.SBSHIFT_NO_CROSSCHECK !== "1";
+const CROSS_CHECK = process.env.PGMIG_NO_CROSSCHECK !== "1";
 const IN_GHA = process.env.GITHUB_ACTIONS === "true";
 const warn = (msg: string): void => console.error(IN_GHA ? `::warning::${msg}` : `warning: ${msg}`);
 
-/** Single source of truth: (method, path) pairs sbshift calls in mgmt.ts / config-sync.ts. */
+/** Single source of truth: (method, path) pairs pgmig calls in mgmt.ts / config-sync.ts. */
 const ENDPOINTS: ReadonlyArray<{ method: string; path: string; used: string }> = [
   // mgmt.ts
   { method: "get", path: "/v1/organizations", used: "token liveness probe" },
@@ -162,8 +162,8 @@ async function crossCheck(livePaths: Record<string, unknown>): Promise<void> {
   const onlyLive = [...live].filter((p) => !docs.has(p));
   const onlyDocs = [...docs].filter((p) => !live.has(p));
 
-  // Endpoints sbshift actually uses that disagree between the two = the only
-  // actionable signal; warn on those. A divergence confined to paths sbshift
+  // Endpoints pgmig actually uses that disagree between the two = the only
+  // actionable signal; warn on those. A divergence confined to paths pgmig
   // never calls (e.g. a new analytics endpoint mid-deploy) is upstream's
   // business - log it as info, not a CI warning annotation.
   const affected = ENDPOINTS.filter((e) => live.has(e.path) !== docs.has(e.path)).map(
@@ -171,7 +171,7 @@ async function crossCheck(livePaths: Record<string, unknown>): Promise<void> {
   );
   if (affected.length) {
     warn(
-      `endpoints sbshift uses differ between live and docs spec (upstream mid-change?): ${affected.join(", ")}`,
+      `endpoints pgmig uses differ between live and docs spec (upstream mid-change?): ${affected.join(", ")}`,
     );
   }
 
@@ -180,7 +180,7 @@ async function crossCheck(livePaths: Record<string, unknown>): Promise<void> {
     if (onlyLive.length) parts.push(`${onlyLive.length} live-only`);
     if (onlyDocs.length) parts.push(`${onlyDocs.length} docs-only`);
     console.log(
-      `cross-check: live and docs specs diverge on paths sbshift does not use (${parts.join(", ")}) - informational only`,
+      `cross-check: live and docs specs diverge on paths pgmig does not use (${parts.join(", ")}) - informational only`,
     );
   } else {
     console.log(`cross-check: live and docs spec agree (${live.size} paths)`);
@@ -219,7 +219,7 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    `ok: all ${ENDPOINTS.length} (method, path) pairs sbshift uses exist in the live spec (v${v})`,
+    `ok: all ${ENDPOINTS.length} (method, path) pairs pgmig uses exist in the live spec (v${v})`,
   );
   if (CROSS_CHECK) await crossCheck(paths);
 }

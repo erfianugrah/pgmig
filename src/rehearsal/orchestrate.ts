@@ -4,7 +4,7 @@ import { log } from "../log.ts";
 import { reconcile } from "../steps/reconcile.ts";
 import { run } from "../steps/run.ts";
 import { teardown } from "../steps/teardown.ts";
-import { runChaos, type ScenarioName } from "./chaos.ts";
+import { runChaos, SCENARIOS, type ScenarioName } from "./chaos.ts";
 import { seedToSize } from "./seed.ts";
 
 /**
@@ -55,13 +55,27 @@ export async function rehearseRun(
 
     if (opts.chaos) {
       log.step(`rehearsal fault gate: ${opts.chaos}`);
+      const gate = SCENARIOS[opts.chaos].reconcileGate;
       await runChaos({ source, target, arg: opts.chaosArg }, opts.chaos);
-      const stillMatches = await reconcile(source, target, cfg);
-      if (stillMatches) {
-        log.err(`fault gate MISSED — reconcile passed after '${opts.chaos}' (should have failed)`);
-        gateOk = false;
+      if (gate === "none") {
+        log.warn(
+          `'${opts.chaos}' is gated by preflight/watch/cutover, not reconcile - the fault gate ` +
+            "cannot verify it post-hoc here; re-run the named step manually per its --describe.",
+        );
       } else {
-        log.ok(`fault gate OK — reconcile correctly caught '${opts.chaos}'`);
+        const stillMatches = await reconcile(source, target, cfg);
+        const expectedMatch = gate === "must-pass";
+        if (stillMatches === expectedMatch) {
+          log.ok(
+            `fault gate OK - reconcile correctly ${expectedMatch ? "passed" : "caught"} '${opts.chaos}'`,
+          );
+        } else {
+          log.err(
+            `fault gate MISSED - reconcile ${stillMatches ? "passed" : "failed"} after ` +
+              `'${opts.chaos}' (expected to ${expectedMatch ? "pass" : "fail"})`,
+          );
+          gateOk = false;
+        }
       }
     }
   } finally {

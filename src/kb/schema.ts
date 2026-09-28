@@ -101,7 +101,7 @@ export type CheckItem = z.infer<typeof CheckItem>;
 /** A validated list of check items. */
 export const Checks = z.array(CheckItem);
 
-/** Heterogeneous source engines with a `sbshift guide <engine>` prep playbook (HETEROGENEOUS.md
+/** Heterogeneous source engines with a `pgmig guide <engine>` prep playbook (HETEROGENEOUS.md
  *  §5 source priority). PG-family sources use the native-pg ProviderHint catalog instead. */
 export const SourcePrepEngine = z.enum(["mysql", "sqlserver"]);
 export type SourcePrepEngine = z.infer<typeof SourcePrepEngine>;
@@ -112,8 +112,8 @@ export type SourcePrepEngine = z.infer<typeof SourcePrepEngine>;
  * those engines need before a Debezium ReplicationEngine (HETEROGENEOUS.md) can stream them.
  *
  * Unlike `CheckItem` — whose Postgres `detect.sql` `doctor` runs live — these probes are
- * MySQL SQL / T-SQL. sbshift has no driver for those engines until the DebeziumEngine runtime
- * lands, so `detect`/`verify` are **documentation-grade today**: `sbshift guide <engine>`
+ * MySQL SQL / T-SQL. pgmig has no driver for those engines until the DebeziumEngine runtime
+ * lands, so `detect`/`verify` are **documentation-grade today**: `pgmig guide <engine>`
  * prints them; nothing executes them yet. They are carried now (not invented later) so the
  * runtime inherits a ready, provenance-stamped probe set — the KB de-risks the engine.
  *

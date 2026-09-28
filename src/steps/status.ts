@@ -22,6 +22,13 @@ export interface StatusSnapshot {
 }
 
 export async function status(source: Db, target: Db, cfg: Config): Promise<StatusSnapshot> {
+  if (cfg.source.engine !== "postgres") {
+    throw new Error(
+      `status is postgres-only (pg_subscription, pg_replication_slots) - source.engine is ` +
+        `'${cfg.source.engine}'. The Debezium engine has no native-PG subscription/slot to poll; ` +
+        "there is no equivalent snapshot for a heterogeneous source yet.",
+    );
+  }
   const { slot, subscription } = cfg.replication;
 
   const [sub] = await target`
