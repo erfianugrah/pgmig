@@ -25,6 +25,10 @@
  * is still unscheduled (no Final image, no Final jar), so this stays a pre-release and
  * DEBEZIUM_RUNTIME_GA stays false. Re-pin CR1 -> Final when a matching Final image+jar pair ships.
  *
+ * RE-PIN (2026-09-28): `3.6.3.Final` ships as a matched image+jar pair and fixes a
+ * `NoSuchMethodError` on Vert.x `setFileCacheDirAsExactPath` that CR1's Quarkus/Vert.x combo
+ * hits at startup. Re-pinned CR1 -> 3.6.3.Final. DEBEZIUM_RUNTIME_GA stays false (still pre-GA).
+ *
  * Why a pre-release is acceptable at all: finding #2 — Debezium Server's JDBC sink gives weaker
  * delivery guarantees than Kafka Connect (no exactly-once, no offset management, no auto-retry).
  * pgmig therefore NEVER trusts the sink: the count + per-column-aggregate reconcile and the
@@ -33,7 +37,7 @@
  */
 
 /** The Debezium Server core + JDBC-sink version the engine runs. Pre-GA, image+jar aligned. */
-export const DEBEZIUM_SERVER_VERSION = "3.6.0.CR1";
+export const DEBEZIUM_SERVER_VERSION = "3.6.3.Final";
 
 /**
  * The custom engine image tag, built from `images/debezium-server/` (the stock server image +

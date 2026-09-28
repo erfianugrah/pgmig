@@ -141,7 +141,7 @@ First tagged release. Two migration tracks, at two maturity levels.
 - Heterogeneous data plane over Debezium Server's no-Kafka JDBC sink
   (`DebeziumEngine`), forking on `cfg.source.engine`. Full lifecycle
   harness-verified end-to-end in CI against real MySQL 8.2 and SQL Server 2022
-  (Developer, CDC) + Debezium 3.6.0.CR1 + Postgres 16.
+  (Developer, CDC) + Debezium 3.6.3.Final + Postgres 16.
 - `pgmig translate` drafts the source-DDL -> Postgres-DDL with a human
   sign-off gate; cutover is blocked until the drafted schema is ratified.
 - Cross-engine `reconcile` (count + portable per-column aggregates) with the
@@ -171,8 +171,8 @@ First tagged release. Two migration tracks, at two maturity levels.
 
 ### Changed
 
-- Debezium runtime re-pinned `3.6.0.Beta2` -> `3.6.0.CR1` now that a matched
-  server-image + JDBC-sink jar pair ships at CR1. Still pre-GA
+- Debezium runtime re-pinned `3.6.0.Beta2` -> `3.6.0.CR1` -> `3.6.3.Final` now that a matched
+  server-image + JDBC-sink jar pair ships at Final. Still pre-GA
   (`DEBEZIUM_RUNTIME_GA=false`); `3.6.0.Final` remains unscheduled.
 
 ### Known limitations

@@ -76,7 +76,7 @@ const sqlcmd = (sql: string, db = "master") =>
 
 async function main() {
   console.log("── build the engine image ──");
-  sh(["docker", "build", "-t", "pgmig/debezium-server:3.6.0.CR1", "images/debezium-server/"]);
+  sh(["docker", "build", "-t", "pgmig/debezium-server:3.6.3.Final", "images/debezium-server/"]);
 
   console.log("── bring up SQL Server + Postgres ──");
   sh([...COMPOSE, "up", "-d", "--wait"]);

@@ -171,7 +171,7 @@ export function resolveRuntimeOpts(
  * (debezium-runtime.ts) and the config + run-spec + reconcile renderers are unit-tested.
  *
  * Full lifecycle implemented + harness-verified (test/heterogeneous/, PASS) against real Debezium
- * 3.6.0.CR1 + MySQL 8.2 + Postgres 16: `replicate` (stage config + run the container + wait for
+ * 3.6.3.Final + MySQL 8.2 + Postgres 16: `replicate` (stage config + run the container + wait for
  * health), `watch` (connector health + row-count convergence), `reconcile` (count + portable
  * aggregates, downgrade caveat logged loud), `cutover` (translated-schema sign-off gate + binlog
  * write-stop gate + identity resync), `teardown` (stop/rm + drop the offset volume). Debezium

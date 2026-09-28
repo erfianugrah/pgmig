@@ -149,10 +149,15 @@ still unscheduled, so this stays a pre-release. The pin lives as a typed constan
 `DEBEZIUM_RUNTIME_GA=false`); re-pin CR1 -> Final only when a matching Final image+jar pair ships
 and flip the GA flag.
 
-### Runtime — IMPLEMENTED + harness-verified (2026-06-24)
+**RE-PIN (2026-09-28): CR1 -> `3.6.3.Final`.** `quay.io/debezium/server:3.6.3.Final` + matching
+`debezium-server-jdbc:3.6.3.Final` jar both ship as a matched pair. Fixes a
+`NoSuchMethodError` on Vert.x `setFileCacheDirAsExactPath` that CR1's Quarkus/Vert.x combo hits
+at startup. `DEBEZIUM_RUNTIME_GA` stays false (still pre-GA).
+
+### Runtime - IMPLEMENTED + harness-verified (2026-06-24)
 
 The full `DebeziumEngine` lifecycle is built and proven end-to-end against real Debezium
-3.6.0.CR1 + MySQL 8.2 + Postgres 16 by the Docker harness (`test/heterogeneous/`, PASS):
+3.6.3.Final + MySQL 8.2 + Postgres 16 by the Docker harness (`test/heterogeneous/`, PASS):
 
 - **`replicate`** — render config → stage 0600 → `docker run` the pinned image → poll `/q/health`.
 - **`reconcile`** — count + portable per-column aggregates on the MySQL source + PG target via the
