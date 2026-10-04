@@ -9,6 +9,8 @@ project split), self-hosted to Supabase, or self-hosted to self-hosted.
 
 ---
 
+Write-up: https://erfi.dev/reference/pgmig-logical-replication-migrator/ - what pgmig replicates, the cutover gates, and the rehearsal lab, with links to the two end-to-end runs.
+
 ## Which path should I use?
 
 pgmig has **three separate workflows**. Your goal determines which one to follow.
