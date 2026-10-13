@@ -597,15 +597,15 @@ project becomes a cold standby.
 | `bun start storage <localDir> [--dry-run]` | push storage objects (skip if none) |
 | `bun start guide <target> [--role source|target] [--json]` | enablement playbook for a migration source (managed PG provider or heterogeneous engine) |
 | `bun start kb drift [--max-age-days N] [--json]` | flag KB items whose guidance hasn't been re-verified recently; exit 1 if stale items found |
-| `bun start upgrade doctor [--to MAJOR] [--db-url URL] [--copy-mbps N] [--fixed-overhead-sec N]` | read-only major-upgrade readiness audit of the source |
+| `bun start upgrade doctor [--to MAJOR] [--db-url URL] [--copy-mb-per-sec N] [--fixed-overhead-sec N]` | read-only major-upgrade readiness audit of the source; `--copy-mb-per-sec` is MB/s (default 100); the old `--copy-mbps` (megabits/s, value / 8) is deprecated |
 | `bun start upgrade capture [--db-url URL] [--out-dir P] [--max-gb N] [--force] [--all-schemas] [--with-auth-data]` | dump roles + schema + data of the source into a local dir (input for `upgrade lab`) |
 | `bun start upgrade lab [--from MAJOR] [--to MAJOR] [--runs N] [--capture-dir P] [--seed-gib N] [--image FLAVOR] [--from-image REF] [--to-image REF] [--prod-bytes N] [--keep] [--clean] [--work-dir P]` | Docker lab: time a real `pg_upgrade --link` N times on production-like data |
 | `bun start upgrade verify [--include-managed] [--out-dir P] [--max-examples N]` | prove the upgraded cluster is data-identical: chunked-checksum reconcile |
-| `bun start pgupgrade doctor [--to MAJOR] [--db-url URL] [--copy-mbps N] [--fixed-overhead-sec N]` | alias for `upgrade doctor` |
+| `bun start pgupgrade doctor [--to MAJOR] [--db-url URL] [--copy-mb-per-sec N] [--fixed-overhead-sec N]` | alias for `upgrade doctor` |
 | `bun start pgupgrade capture [--db-url URL] [--out-dir P] [--max-gb N] [--force] [--all-schemas] [--with-auth-data]` | alias for `upgrade capture` |
 | `bun start pgupgrade lab [--from MAJOR] [--to MAJOR] [--runs N] [--capture-dir P] [--seed-gib N] [--image FLAVOR] [--from-image REF] [--to-image REF] [--prod-bytes N] [--keep] [--clean] [--work-dir P]` | alias for `upgrade lab` |
 | `bun start pgupgrade verify [--include-managed] [--out-dir P] [--max-examples N]` | alias for `upgrade verify` |
-| `bun start rehearse upgrade doctor [--to MAJOR] [--db-url URL] [--copy-mbps N] [--fixed-overhead-sec N]` | alias for `upgrade doctor` (nested under rehearse) |
+| `bun start rehearse upgrade doctor [--to MAJOR] [--db-url URL] [--copy-mb-per-sec N] [--fixed-overhead-sec N]` | alias for `upgrade doctor` (nested under rehearse) |
 | `bun start rehearse upgrade capture [--db-url URL] [--out-dir P] [--max-gb N] [--force] [--all-schemas] [--with-auth-data]` | alias for `upgrade capture` (nested under rehearse) |
 | `bun start rehearse upgrade lab [--from MAJOR] [--to MAJOR] [--runs N] [--capture-dir P] [--seed-gib N] [--image FLAVOR] [--from-image REF] [--to-image REF] [--prod-bytes N] [--keep] [--clean] [--work-dir P]` | alias for `upgrade lab` (nested under rehearse) |
 | `bun start rehearse upgrade verify [--include-managed] [--out-dir P] [--max-examples N]` | alias for `upgrade verify` (nested under rehearse) |

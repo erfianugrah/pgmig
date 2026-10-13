@@ -7,6 +7,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * Final cutover. Caller MUST have already stopped application writes to the source.
+ *  0. refuse unless every table of our subscription finished initial sync ('r')
  *  1. wait for replication lag -> 0
  *  2. (sequences) re-sync any sequences listed (none for uuid/text PKs)
  *  3. drop the subscription on the target (safely: DISABLE → detach slot → DROP)
@@ -25,6 +26,36 @@ export async function cutover(
 
   const { subscription, slot } = cfg.replication;
   const deadline = Date.now() + (opts.maxLagWaitSec ?? 300) * 1000;
+
+  // initial-sync gate: standalone `cutover` (no preceding `watch`) must not drop a
+  // subscription whose tables are still copying - the target would be missing rows
+  // for good. Only 'r' counts as done, same as watch: 's' (synced) is a transient
+  // hand-off state the apply worker moves to 'r' on its own.
+  const states = await withRetry(
+    () =>
+      target<{ srsubstate: string; n: number }[]>`
+        SELECT srsubstate, count(*)::int AS n FROM pg_subscription_rel
+        JOIN pg_subscription s ON s.oid = srsubid AND s.subname = ${subscription}
+        GROUP BY srsubstate`,
+    "cutover/sync-check",
+  );
+  const total = states.reduce((a, s) => a + Number(s.n), 0);
+  if (total === 0) {
+    throw new Error(
+      `subscription "${subscription}" has no tables in pg_subscription_rel on the target - ` +
+        "check the subscription name in config and that `replicate` ran; refusing to cut over.",
+    );
+  }
+  const notReady = states.filter((s) => s.srsubstate !== "r");
+  if (notReady.length > 0) {
+    const n = notReady.reduce((a, s) => a + Number(s.n), 0);
+    const by = notReady.map((s) => `${s.srsubstate}=${s.n}`).join(", ");
+    throw new Error(
+      `initial sync incomplete: ${n} of ${total} table(s) not ready (${by}; need srsubstate='r'). ` +
+        "Run `pgmig watch` until every table is ready, then cut over.",
+    );
+  }
+  log.ok(`all ${total} tables ready (srsubstate='r')`);
 
   // 0. quiesce check: confirm the SOURCE is actually write-stopped before draining.
   //    If WAL is still advancing AND client backends are running write queries,
@@ -64,9 +95,22 @@ export async function cutover(
           FROM pg_replication_slots WHERE slot_name = ${slot}`,
       "cutover/lag-drain",
     );
-    const lag = Number(row?.lag_bytes ?? 0);
-    log.info(`replication lag ${(lag / 1024).toFixed(1)} KB`);
-    if (lag <= 0) {
+    // No row = the slot does not exist, so nothing proves the subscriber caught up.
+    if (!row) {
+      throw new Error(
+        `replication slot "${slot}" not found on the source - cannot confirm lag drained; ` +
+          "refusing to cut over (check replication.slot in config).",
+      );
+    }
+    // confirmed_flush_lsn NULL (slot never confirmed a flush) -> lag_bytes NULL:
+    // unknown, so keep waiting rather than reading it as zero.
+    const lag = row.lag_bytes === null ? null : Number(row.lag_bytes);
+    log.info(
+      lag === null
+        ? "replication lag unknown (confirmed_flush_lsn is NULL)"
+        : `replication lag ${(lag / 1024).toFixed(1)} KB`,
+    );
+    if (lag !== null && lag <= 0) {
       log.ok("lag drained to zero");
       break;
     }

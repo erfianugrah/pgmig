@@ -123,11 +123,12 @@ export interface DowntimeEstimate {
 
 export interface DowntimeOpts {
   /**
-   * Assumed disk copy throughput in megabits/s. The Supabase platform guide
-   * states a project on the default GP3 disk copies at ~100 Mbps during the
-   * upgrade; faster disk types / higher IOPS reduce the copy time.
+   * Assumed disk copy throughput in megaBYTES/s (MB/s). The Supabase platform
+   * guide's figure for a project on the default GP3 disk is ~100 MB/s during the
+   * upgrade (megabytes, not megabits: ~10 s per GB); faster disk types / higher
+   * IOPS reduce the copy time.
    */
-  copyMbps: number;
+  copyMBps: number;
   /** Fixed platform overhead in seconds (default 15 min). */
   fixedOverheadSec: number;
   /** Pessimism multiplier applied to the copy time for the high bound. */
@@ -135,10 +136,59 @@ export interface DowntimeOpts {
 }
 
 export const DEFAULT_DOWNTIME_OPTS: DowntimeOpts = {
-  copyMbps: 100,
+  copyMBps: 100,
   fixedOverheadSec: 900,
   copyFudge: 1.5,
 };
+
+/**
+ * Pure: DEFAULT_DOWNTIME_OPTS overlaid with the DEFINED fields of `opts` (an
+ * explicit undefined, e.g. an unset CLI option passed through, keeps the default),
+ * validated so a bad flag is an error rather than "~NaN min" or Infinity.
+ */
+function resolveDowntimeOpts(opts: Partial<DowntimeOpts>): DowntimeOpts {
+  const defined = Object.fromEntries(Object.entries(opts).filter(([, v]) => v !== undefined));
+  const o: DowntimeOpts = { ...DEFAULT_DOWNTIME_OPTS, ...defined };
+  if (!Number.isFinite(o.copyMBps) || o.copyMBps <= 0) {
+    throw new Error(`invalid copy throughput ${o.copyMBps} MB/s: must be a positive number`);
+  }
+  if (!Number.isFinite(o.fixedOverheadSec) || o.fixedOverheadSec < 0) {
+    throw new Error(`invalid fixed overhead ${o.fixedOverheadSec}s: must be a number >= 0`);
+  }
+  return o;
+}
+
+/**
+ * Pure: the copy rate in MB/s from the `upgrade doctor` flags. `--copy-mbps` is
+ * the deprecated megaBIT/s spelling (value / 8) and yields a one-line deprecation
+ * note for the caller to print. Neither flag -> the default.
+ */
+export function resolveCopyMBps(flags: { copyMbPerSec?: string; copyMbps?: string }): {
+  copyMBps: number;
+  deprecation?: string;
+} {
+  const parse = (raw: string, flag: string): number => {
+    const n = Number(raw);
+    if (raw.trim() === "" || !Number.isFinite(n) || n <= 0) {
+      throw new Error(`${flag} must be a positive number, got '${raw}'`);
+    }
+    return n;
+  };
+  if (flags.copyMbPerSec !== undefined && flags.copyMbps !== undefined) {
+    throw new Error("pass either --copy-mb-per-sec or the deprecated --copy-mbps, not both");
+  }
+  if (flags.copyMbps !== undefined) {
+    const copyMBps = parse(flags.copyMbps, "--copy-mbps") / 8;
+    return {
+      copyMBps,
+      deprecation: `--copy-mbps (megabits/s) is deprecated; use --copy-mb-per-sec ${copyMBps} (megabytes/s)`,
+    };
+  }
+  if (flags.copyMbPerSec !== undefined) {
+    return { copyMBps: parse(flags.copyMbPerSec, "--copy-mb-per-sec") };
+  }
+  return { copyMBps: DEFAULT_DOWNTIME_OPTS.copyMBps };
+}
 
 /**
  * Pure: estimated upgrade downtime window for a database of `sizeBytes`.
@@ -149,8 +199,8 @@ export function estimateUpgradeDowntime(
   sizeBytes: number,
   opts: Partial<DowntimeOpts> = {},
 ): DowntimeEstimate {
-  const o = { ...DEFAULT_DOWNTIME_OPTS, ...opts };
-  const bytesPerSec = (o.copyMbps / 8) * 1_000_000;
+  const o = resolveDowntimeOpts(opts);
+  const bytesPerSec = o.copyMBps * 1_000_000;
   const dataCopySec = sizeBytes / bytesPerSec;
   const totalSecLow = Math.ceil(dataCopySec + o.fixedOverheadSec);
   const totalSecHigh = Math.ceil(dataCopySec * o.copyFudge + o.fixedOverheadSec * 1.25);
@@ -160,7 +210,7 @@ export function estimateUpgradeDowntime(
     totalSecLow,
     totalSecHigh,
     assumptions: [
-      `disk copy throughput ~${o.copyMbps} Mbps (Supabase default GP3; faster disk/IOPS shortens this)`,
+      `disk copy throughput ~${o.copyMBps} MB/s (Supabase default GP3; faster disk/IOPS shortens this)`,
       `fixed platform overhead ~${Math.round(o.fixedOverheadSec / 60)} min (instance provisioning, validations, post-upgrade base backup)`,
       "upgrade time also scales with OBJECT count (tables/indexes), not just bytes",
       "app-level validation time is NOT included - budget it separately",
@@ -180,7 +230,7 @@ export function extrapolateProdDowntime(
   prodBytes: number,
   opts: Partial<DowntimeOpts> = {},
 ): DowntimeEstimate {
-  const o = { ...DEFAULT_DOWNTIME_OPTS, ...opts };
+  const o = resolveDowntimeOpts(opts);
   const scale = labBytes > 0 ? prodBytes / labBytes : 1;
   const scaled = labUpgradeSec * scale;
   const totalSecLow = Math.ceil(scaled + o.fixedOverheadSec);

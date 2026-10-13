@@ -11,6 +11,7 @@ import {
   partitionRegTypeColumns,
   preUpgradeChecklist,
   renderEstimate,
+  resolveCopyMBps,
   SUPABASE_POSTGRES_IMAGES,
   stripUnsupportedExtensions,
 } from "../src/upgrade/kb.ts";
@@ -39,18 +40,39 @@ describe("deprecatedOnTarget", () => {
 });
 
 describe("estimateUpgradeDowntime", () => {
-  test("2 GiB at 100 Mbps: copy ~172s, low bound dominated by fixed overhead", () => {
+  test("1 GB at the default 100 MB/s copies in ~10 s", () => {
+    const e = estimateUpgradeDowntime(1_000_000_000);
+    expect(e.dataCopySec).toBeCloseTo(10, 5);
+    expect(e.assumptions.join(" ")).toContain("~100 MB/s");
+  });
+
+  test("2 GiB at 100 MB/s: copy ~21.5s, low bound dominated by fixed overhead", () => {
     const e = estimateUpgradeDowntime(2 * 1_073_741_824);
-    expect(e.dataCopySec).toBeCloseTo(171.8, 0);
-    expect(e.totalSecLow).toBe(Math.ceil(171.79869184 + 900));
+    expect(e.dataCopySec).toBeCloseTo(21.47, 1);
+    expect(e.totalSecLow).toBe(Math.ceil(21.47483648 + 900));
     expect(e.totalSecHigh).toBeGreaterThan(e.totalSecLow);
   });
 
   test("custom overhead + throughput flow through", () => {
-    const e = estimateUpgradeDowntime(1_000_000_000, { copyMbps: 1000, fixedOverheadSec: 60 });
-    expect(e.dataCopySec).toBeCloseTo(8, 1);
-    expect(e.totalSecLow).toBe(68);
-    expect(e.assumptions.join(" ")).toContain("1000 Mbps");
+    const e = estimateUpgradeDowntime(1_000_000_000, { copyMBps: 1000, fixedOverheadSec: 60 });
+    expect(e.dataCopySec).toBeCloseTo(1, 5);
+    expect(e.totalSecLow).toBe(61);
+    expect(e.assumptions.join(" ")).toContain("1000 MB/s");
+  });
+
+  test("an explicit undefined in opts keeps the default", () => {
+    const e = estimateUpgradeDowntime(1_000_000_000, {
+      copyMBps: undefined,
+      fixedOverheadSec: undefined,
+    });
+    expect(e.dataCopySec).toBeCloseTo(10, 5);
+    expect(e.fixedOverheadSec).toBe(900);
+  });
+
+  test("NaN / zero / negative throughput is an error, not ~NaN min or Infinity", () => {
+    for (const copyMBps of [Number.NaN, 0, -5, Number.POSITIVE_INFINITY]) {
+      expect(() => estimateUpgradeDowntime(1_000_000_000, { copyMBps })).toThrow(/copy throughput/);
+    }
   });
 
   test("renderEstimate renders a minute range", () => {
@@ -219,8 +241,35 @@ describe("upgrade verify synthetic config", () => {
 });
 
 describe("downtime defaults", () => {
-  test("grounded in the Supabase platform guide (GP3 ~100 Mbps, ~15 min fixed)", () => {
-    expect(DEFAULT_DOWNTIME_OPTS.copyMbps).toBe(100);
+  test("grounded in the Supabase platform guide (GP3 ~100 MB/s, ~15 min fixed)", () => {
+    expect(DEFAULT_DOWNTIME_OPTS.copyMBps).toBe(100);
     expect(DEFAULT_DOWNTIME_OPTS.fixedOverheadSec).toBe(900);
+  });
+});
+
+describe("resolveCopyMBps (CLI flags)", () => {
+  test("no flag -> default 100 MB/s, no deprecation note", () => {
+    expect(resolveCopyMBps({})).toEqual({ copyMBps: 100 });
+  });
+
+  test("--copy-mb-per-sec is megabytes/s as given", () => {
+    expect(resolveCopyMBps({ copyMbPerSec: "250" })).toEqual({ copyMBps: 250 });
+  });
+
+  test("deprecated --copy-mbps means megabits/s: value / 8, with a one-line note", () => {
+    const r = resolveCopyMBps({ copyMbps: "800" });
+    expect(r.copyMBps).toBe(100);
+    expect(r.deprecation).toMatch(/--copy-mbps.*deprecated.*--copy-mb-per-sec 100/);
+    expect(r.deprecation).not.toContain("\n");
+  });
+
+  test("garbage / non-positive values are rejected naming the flag", () => {
+    expect(() => resolveCopyMBps({ copyMbPerSec: "abc" })).toThrow(/--copy-mb-per-sec/);
+    expect(() => resolveCopyMBps({ copyMbPerSec: "0" })).toThrow(/--copy-mb-per-sec/);
+    expect(() => resolveCopyMBps({ copyMbps: "-8" })).toThrow(/--copy-mbps/);
+  });
+
+  test("passing both flags is ambiguous -> error", () => {
+    expect(() => resolveCopyMBps({ copyMbPerSec: "100", copyMbps: "800" })).toThrow(/both/);
   });
 });

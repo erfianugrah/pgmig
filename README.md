@@ -718,7 +718,8 @@ bun start kb drift
 # Read-only major-upgrade readiness audit of the source.
 # --to <major>: target Postgres major version (default: 17)
 # --db-url <url>: source connection string (default: SOURCE_DB_URL)
-# --copy-mbps <n>: assumed disk copy throughput for downtime estimate (default: 100)
+# --copy-mb-per-sec <n>: assumed disk copy throughput for downtime estimate, in MB/s (default: 100, ~10 s per GB)
+# --copy-mbps <n>: DEPRECATED megabit/s spelling (value / 8 -> MB/s); use --copy-mb-per-sec
 # --fixed-overhead-sec <n>: assumed fixed platform overhead in seconds (default: 900)
 bun start upgrade doctor --to 17
 ```

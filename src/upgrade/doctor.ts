@@ -57,8 +57,8 @@ export interface UpgradeDoctorOpts {
   to: number;
   /** Source connection string (for provider detection -> checklist extras). */
   sourceUrl: string;
-  /** Assumed disk throughput for the downtime estimate (Mbps). */
-  copyMbps?: number;
+  /** Assumed disk copy throughput for the downtime estimate (MB/s, megabytes). */
+  copyMBps?: number;
   /** Fixed platform overhead for the downtime estimate (seconds). */
   fixedOverheadSec?: number;
 }
@@ -227,7 +227,7 @@ async function sizeAndEstimate(db: Db, opts: UpgradeDoctorOpts, s: Sink): Promis
   const bytes = Number(row?.bytes ?? 0);
   const gib = (bytes / 1_073_741_824).toFixed(2);
   const est = estimateUpgradeDowntime(bytes, {
-    copyMbps: opts.copyMbps,
+    copyMBps: opts.copyMBps,
     fixedOverheadSec: opts.fixedOverheadSec,
   });
   s.ok(

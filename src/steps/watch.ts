@@ -72,9 +72,12 @@ export async function watch(source: Db, target: Db, cfg: Config): Promise<void> 
       }
 
       // Per-table sync state on the subscriber. srsubstate: i=init d=copying r=ready s=synced
+      // Scoped to OUR subscription (as status.ts does): other subscriptions on the
+      // target must not hold up, or falsely complete, this migration's sync.
       const states = await target`
-      SELECT srsubstate, count(*)::int AS n
-      FROM pg_subscription_rel GROUP BY srsubstate`;
+      SELECT srsubstate, count(*)::int AS n FROM pg_subscription_rel
+      JOIN pg_subscription s ON s.oid = srsubid AND s.subname = ${subscription}
+      GROUP BY srsubstate`;
       const byState = Object.fromEntries(states.map((s) => [s.srsubstate, s.n])) as Record<
         string,
         number
@@ -157,9 +160,10 @@ export async function watch(source: Db, target: Db, cfg: Config): Promise<void> 
       }
 
       // M-5: detect total===0 after the subscription is established.
-      // pg_subscription_rel is empty when: the subscription name is wrong, the
-      // walreceiver never attached, or max_replication_workers=0. Without this
-      // check the loop spins silently until syncTimeoutMin expires.
+      // Our subscription has no pg_subscription_rel rows when: the subscription
+      // name in config is wrong (nothing to join), the walreceiver never attached,
+      // or max_replication_workers=0. Warn when a subscription of that name exists
+      // and is enabled; without this the loop spins silently until syncTimeoutMin.
       if (total === 0 && pollCount > 3) {
         const [subState] = await target`
           SELECT subenabled FROM pg_subscription WHERE subname = ${subscription}`;
