@@ -2245,4 +2245,5 @@ Not verified, and not verifiable without live infrastructure or credentials:
   `unknown` if not); a live `region-check` run (needs a PAT); and the custom-domain plus
   external-issuer mitigation, which `docs/REGION-CHANGE.md` marks UNVERIFIED.
 - The repo's no-internal docs sensor reads a pattern file that is not present on the machine
-  used for this dry run; the plan was checked by hand for confidential terms instead.
+  used for this dry run (and passes silently when it is missing - work-pgmig#9); the plan
+  was checked by hand for confidential terms instead.
