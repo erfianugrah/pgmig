@@ -17,8 +17,8 @@
     },
     {
       "name": "no-internal",
-      "cmd": "! rg -if ~/.pi/agent/pgmig-internal-patterns.txt README.md docs/",
-      "hint": "an internal/sensitive term or link leaked into the docs (pattern list lives outside the repo) - remove it; the repo is PUBLIC"
+      "cmd": "test -s ~/.pi/agent/pgmig-internal-patterns.txt || { echo 'pattern file ~/.pi/agent/pgmig-internal-patterns.txt missing or empty - nothing was checked'; exit 1; }; ! rg -if ~/.pi/agent/pgmig-internal-patterns.txt README.md docs/",
+      "hint": "an internal/sensitive term or link leaked into the docs (pattern list lives outside the repo) - remove it; the repo is PUBLIC. If the pattern file is missing, stop: this machine cannot run the sensor"
     },
     {
       "name": "links-valid",
