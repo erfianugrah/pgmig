@@ -74,12 +74,60 @@ const sqlcmd = (sql: string, db = "master") =>
     `"${sql}"`,
   ]);
 
+/**
+ * Block until SQL Server Agent has finished starting. `up --wait` only proves the engine accepts
+ * logins; sp_cdc_enable_table adds the capture job through msdb, which refuses with error 14258
+ * ("Cannot perform this operation while SQLServerAgent is starting") while
+ * xp_sqlagent_is_starting is 1 - and the proc itself errors ('Agent XPs' off) until the Agent is up.
+ */
+async function waitForAgent(timeoutMs = 120_000) {
+  const q =
+    "SET NOCOUNT ON; DECLARE @r INT; EXEC master.dbo.xp_sqlagent_is_starting @r OUTPUT; " +
+    "SELECT CONCAT('starting=', @r, ' svc=', (SELECT TOP 1 status_desc FROM sys.dm_server_services " +
+    "WHERE servicename LIKE 'SQL Server Agent%'));";
+  const cmd = [
+    ...COMPOSE,
+    "exec",
+    "-T",
+    "mssql",
+    "/opt/mssql-tools18/bin/sqlcmd",
+    "-S",
+    "localhost",
+    "-U",
+    "sa",
+    "-P",
+    `"${SA_PW}"`,
+    "-C",
+    "-b",
+    "-h",
+    "-1",
+    "-Q",
+    `"${q}"`,
+  ].join(" ");
+  const deadline = Date.now() + timeoutMs;
+  let last = "";
+  while (Date.now() < deadline) {
+    try {
+      last = execSync(cmd, { stdio: ["inherit", "pipe", "pipe"] })
+        .toString()
+        .trim();
+      if (last.includes("starting=0 svc=Running")) return;
+    } catch (e) {
+      last = String((e as { stdout?: Buffer }).stdout ?? e).trim();
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  throw new Error(`SQL Server Agent not ready after ${timeoutMs / 1000}s: ${last}`);
+}
+
 async function main() {
   console.log("── build the engine image ──");
   sh(["docker", "build", "-t", "pgmig/debezium-server:3.6.3.Final", "images/debezium-server/"]);
 
   console.log("── bring up SQL Server + Postgres ──");
   sh([...COMPOSE, "up", "-d", "--wait"]);
+  console.log("── wait for SQL Server Agent (CDC jobs are added through msdb) ──");
+  await waitForAgent();
 
   console.log("── seed: create DB, enable CDC (db + table), seed 4 rows ──");
   sqlcmd("IF DB_ID('inventory') IS NULL CREATE DATABASE inventory;");
