@@ -317,6 +317,17 @@ bun start watch         # polls until all tables srsubstate='r'; aborts if WAL b
 `replicate` is idempotent-ish: it skips objects that already exist. If you need to start
 over, run `bun start teardown` first.
 
+> **A table stuck in copy with `sync_error_count` rising every two minutes.** On a Supabase
+> source the `postgres` role is capped by the 2 min global `statement_timeout`, and the
+> subscription CONNECTION is dialled by the target's tablesync worker, not pgmig's pools, so a
+> table whose initial COPY outlasts two minutes is cancelled (`could not receive data from WAL
+> stream: ERROR: canceling statement due to statement timeout`) and restarts from zero. `watch`
+> only warns about rising error counts; it gives up at `watchdog.syncTimeoutMin`. Since ae33443
+> `replicate` puts `options=-c statement_timeout=0` on the CONNECTION; an older build needs
+> `?options=-c%20statement_timeout%3D0` on `SOURCE_REPLICATION_URL`. Measured 2026-11-09, 4M rows
+> on Small: 16 restarts before the fix, a 196.9 s copy after it
+> ([research note](research/2026-11-09-pg15-to-17-live.md)).
+
 ---
 
 ## 9. Cutover  ← brief downtime starts here
