@@ -20,6 +20,7 @@
  * DISK_GB (grow before seeding), SETTLE_SEC (180).
  */
 import { randomBytes } from "node:crypto";
+import { writeFileSync } from "node:fs";
 import postgres from "postgres";
 import { log } from "../src/log.ts";
 import { MgmtApi } from "../src/mgmt.ts";
@@ -43,6 +44,8 @@ const REGION = process.env.REGION || "ap-southeast-1";
 const INSTANCE_SIZE = process.env.INSTANCE_SIZE || undefined;
 const SETTLE_SEC = Number(process.env.SETTLE_SEC ?? 180);
 const DISK_GB = Number(process.env.DISK_GB || 0);
+// Acknowledged probe ids are written here before the survival check, so a failed check can be redone by hand.
+const ACKED_FILE = process.env.ACKED_FILE || "";
 const API = "https://api.supabase.com/v1";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -228,7 +231,10 @@ async function main(): Promise<void> {
       `availability: first failed sample +${firstFail}s, longest failed run +${worst.from}s..+${worst.to}s, first ${TARGET_VERSION} answer +${firstNew}s; servers seen ${servers.join(", ")}`,
     );
 
-    // Which acknowledged writes survived on the upgraded server.
+    if (ACKED_FILE)
+      writeFileSync(ACKED_FILE, JSON.stringify({ ref, acked, avail, stages }, null, 1));
+    // Which acknowledged writes survived on the upgraded server. The read is
+    // retried: a run on 2026-11-09 lost its check to a one-off getaddrinfo ENOTFOUND.
     const check = postgres(url, {
       max: 1,
       connect_timeout: 30,
@@ -236,7 +242,17 @@ async function main(): Promise<void> {
       onnotice: () => {},
     });
     try {
-      const rows = await check`SELECT id FROM public.upgrade_probe`;
+      let rows: { id: number }[] = [];
+      for (let i = 0; ; i++) {
+        try {
+          rows = (await check`SELECT id FROM public.upgrade_probe`) as unknown as { id: number }[];
+          break;
+        } catch (e) {
+          if (i >= 5) throw e;
+          log.warn(`survival check read failed (${short(e)}); retrying in 10 s`);
+          await sleep(10_000);
+        }
+      }
       const have = new Set(rows.map((r) => Number(r.id)));
       const byServer: Record<string, { acked: number; lost: number }> = {};
       for (const a of acked) {

@@ -26,6 +26,7 @@ import { replicate } from "../src/steps/replicate.ts";
 import { watch } from "../src/steps/watch.ts";
 import { createSchema, seedSource } from "./annoying-schema.ts";
 import { growDisk } from "./disk.ts";
+import { diagnose } from "./live-diagnose.ts";
 
 const ORG_ID = process.argv[2] ?? "";
 if (!ORG_ID) {
@@ -207,6 +208,14 @@ async function main(): Promise<void> {
       }
 
       log.ok("LIVE TEST PASSED — pipeline clean end-to-end against real Supabase");
+    } catch (e) {
+      // Read the failure's cause before teardown deletes the projects (a 4M-row
+      // run on 2026-11-09 restarted its table sync 17 times and left no trace).
+      log.warn(`pipeline failed: ${e instanceof Error ? e.message : String(e)}`);
+      await diagnose(api, source, target, srcRef, tgtRef).catch((d) =>
+        log.warn(`diagnostics failed: ${d instanceof Error ? d.message : String(d)}`),
+      );
+      throw e;
     } finally {
       await close();
     }
