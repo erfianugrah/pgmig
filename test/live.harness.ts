@@ -40,6 +40,14 @@ if (!TOKEN.startsWith("sbp_")) {
 
 const SRC_REGION = process.env.SRC_REGION ?? "eu-central-1";
 const TGT_REGION = process.env.TGT_REGION ?? "eu-west-1";
+// Major-version move rehearsal: SRC_ENGINE=15 puts the source on Postgres 15;
+// unset keeps the platform default on both ends. INSTANCE_SIZE (e.g. "small")
+// applies to both projects.
+const SRC_ENGINE = process.env.SRC_ENGINE || undefined;
+const TGT_ENGINE = process.env.TGT_ENGINE || undefined;
+const INSTANCE_SIZE = process.env.INSTANCE_SIZE || undefined;
+
+const secs = (t0: number): number => Math.round((Date.now() - t0) / 100) / 10;
 
 function randPw(): string {
   return randomBytes(21).toString("base64").replace(/[/+=]/g, "").slice(0, 28);
@@ -53,12 +61,20 @@ async function main(): Promise<void> {
   let tgtRef = "";
 
   try {
-    log.step(`creating projects (src=${SRC_REGION} tgt=${TGT_REGION})`);
+    log.step(
+      `creating projects (src=${SRC_REGION}${SRC_ENGINE ? ` pg${SRC_ENGINE}` : ""} tgt=${TGT_REGION}${TGT_ENGINE ? ` pg${TGT_ENGINE}` : ""}${INSTANCE_SIZE ? ` ${INSTANCE_SIZE}` : ""})`,
+    );
     const srcPw = randPw();
     const tgtPw = randPw();
     [srcRef, tgtRef] = await Promise.all([
-      api.createProject("pgmig-livetest-src", ORG_ID, srcPw, SRC_REGION),
-      api.createProject("pgmig-livetest-tgt", ORG_ID, tgtPw, TGT_REGION),
+      api.createProject("pgmig-livetest-src", ORG_ID, srcPw, SRC_REGION, {
+        postgresEngine: SRC_ENGINE,
+        instanceSize: INSTANCE_SIZE,
+      }),
+      api.createProject("pgmig-livetest-tgt", ORG_ID, tgtPw, TGT_REGION, {
+        postgresEngine: TGT_ENGINE,
+        instanceSize: INSTANCE_SIZE,
+      }),
     ]);
     log.ok(`src=${srcRef}  tgt=${tgtRef}`);
 
@@ -98,6 +114,12 @@ async function main(): Promise<void> {
     const { source, target, close } = connect(secrets);
 
     try {
+      const [sv] = await source`SELECT version() AS v`;
+      const [tv] = await target`SELECT version() AS v`;
+      log.ok(
+        `source: ${String(sv?.v ?? "").slice(0, 40)} | target: ${String(tv?.v ?? "").slice(0, 40)}`,
+      );
+
       log.step("loading annoying schema on the SOURCE");
       await createSchema(source);
 
@@ -116,7 +138,12 @@ async function main(): Promise<void> {
       log.ok(`bootstrap applied ${boot.applied}/${boot.planned} steps; target schema present`);
 
       log.step(`seeding source (${ROWS.toLocaleString()} documents + deps)`);
+      const tSeed = Date.now();
       await seedSource(source, ROWS);
+      const [sz] = await source`SELECT pg_database_size(current_database())::bigint AS b`;
+      log.ok(
+        `seeded in ${secs(tSeed)} s; source database ${(Number(sz?.b ?? 0) / 1024 ** 3).toFixed(2)} GB`,
+      );
       const [counts] = await source.unsafe(
         `SELECT (SELECT count(*) FROM public.users)  +
                 (SELECT count(*) FROM public.documents) +
@@ -132,17 +159,26 @@ async function main(): Promise<void> {
       await preflight(source, target, cfg);
 
       log.step("replicate");
+      const tCopy = Date.now();
       await replicate(source, target, cfg, secrets);
 
       log.step("watch");
       await watch(source, target, cfg);
+      log.ok(`initial copy (replicate + watch) took ${secs(tCopy)} s`);
 
       log.step("reconcile");
+      const tRec = Date.now();
       const ok = await reconcile(source, target, cfg);
       if (!ok) throw new Error("reconcile FAILED — data mismatch");
+      log.ok(`reconcile took ${secs(tRec)} s`);
 
+      // No writer runs in this harness, so cutover's duration is the write-stop
+      // window an app would hold (lag drain + sequence resync + subscription
+      // drop), before the time it takes to repoint the app.
       log.step("cutover");
+      const tCut = Date.now();
       await cutover(source, target, cfg, { maxLagWaitSec: 120 });
+      log.ok(`cutover (write-stop window, app repoint excluded) took ${secs(tCut)} s`);
 
       log.step("post-cutover sequence-collision check");
       const [row] = await target.unsafe(

@@ -82,16 +82,27 @@ export class MgmtApi {
   }
 
   /** POST /v1/projects — creates a new project; returns the project ref. */
+  // `postgresEngine` ("15", "17") picks an older major for upgrade rehearsals:
+  // typed deprecated in the OpenAPI document but honoured (supabase-lab
+  // upgrade-integrity UI01, 2026-10-23). Both options are sent only when set.
   async createProject(
     name: string,
     organizationId: string,
     dbPass: string,
     region: string,
+    opts: { postgresEngine?: string; instanceSize?: string } = {},
   ): Promise<string> {
     const res = await fetch(`${API_BASE}/projects`, {
       method: "POST",
       headers: this.headers(true),
-      body: JSON.stringify({ name, organization_id: organizationId, db_pass: dbPass, region }),
+      body: JSON.stringify({
+        name,
+        organization_id: organizationId,
+        db_pass: dbPass,
+        region,
+        ...(opts.postgresEngine ? { postgres_engine: opts.postgresEngine } : {}),
+        ...(opts.instanceSize ? { desired_instance_size: opts.instanceSize } : {}),
+      }),
     });
     if (!res.ok) throw new Error(`createProject failed: HTTP ${res.status} ${await res.text()}`);
     const { ref } = (await res.json()) as { ref: string };
