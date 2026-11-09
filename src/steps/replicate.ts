@@ -1,6 +1,6 @@
 import type { Config, Secrets } from "../config.ts";
 import type { Db } from "../db.ts";
-import { assertDirectReplicationConn, qi, sourceConnUrl } from "../db.ts";
+import { assertDirectReplicationConn, qi, sourceConnUrl, withNoStatementTimeout } from "../db.ts";
 import { log } from "../log.ts";
 
 // H-4: quote every identifier that comes from user config so names with hyphens,
@@ -82,7 +82,9 @@ export async function replicate(
   // tokenisation before any escaping layer can fix it). Percent-encoding in the URL is clean.
   const replUrl = sourceConnUrl(secrets);
   assertDirectReplicationConn(replUrl); // hard-stop: never issue a subscription over a pooler
-  const conn = replUrl.replaceAll("'", "''");
+  // statement_timeout=0: Supabase caps the postgres role at a 2 min global timeout, which
+  // cancels any initial COPY longer than that (see withNoStatementTimeout).
+  const conn = withNoStatementTimeout(replUrl).replaceAll("'", "''");
   await target.unsafe(
     `CREATE SUBSCRIPTION ${qi(subscription)}
        CONNECTION '${conn}'

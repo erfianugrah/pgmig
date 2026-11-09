@@ -187,6 +187,27 @@ export function sourceConnUrl(secrets: Secrets): string {
 }
 
 /**
+ * Add `statement_timeout=0` to the subscription CONNECTION. That connection is
+ * dialled by the TARGET's tablesync/apply workers, so the pools' pinned GUCs
+ * never reach it, and on a Supabase source the postgres role is capped by the
+ * 2 min global statement_timeout: a live run (2026-11-09, 4M rows) had its
+ * initial COPY cancelled every 120 s and never synced. A URL or keyword string
+ * that already sets statement_timeout is returned unchanged.
+ */
+export function withNoStatementTimeout(conn: string): string {
+  if (/statement_timeout/i.test(conn)) return conn;
+  if (!/^postgres(ql)?:\/\//i.test(conn)) return `${conn} options='-c statement_timeout=0'`;
+  const opt = "-c%20statement_timeout%3D0";
+  const q = conn.indexOf("?");
+  if (q < 0) return `${conn}?options=${opt}`;
+  const params = conn.slice(q + 1).split("&");
+  const i = params.findIndex((p) => p.toLowerCase().startsWith("options="));
+  if (i < 0) params.push(`options=${opt}`);
+  else params[i] = `${params[i]}%20${opt}`;
+  return `${conn.slice(0, q)}?${params.join("&")}`;
+}
+
+/**
  * Enforce the direct-only replication invariant. The subscription CONNECTION must be a
  * DIRECT host - a Supavisor pooler cannot stream logical replication WAL, so a subscription
  * pointed at one silently never syncs. Throws with actionable guidance. Called by replicate()

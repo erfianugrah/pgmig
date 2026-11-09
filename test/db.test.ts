@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { assertDirectReplicationConn, isTransient, sourceConnUrl } from "../src/db.ts";
+import {
+  assertDirectReplicationConn,
+  isTransient,
+  sourceConnUrl,
+  withNoStatementTimeout,
+} from "../src/db.ts";
 
 // C-2: sourceConnString (libpq keyword=value) was replaced by sourceConnUrl which
 // returns the raw URL for CREATE SUBSCRIPTION CONNECTION — no quoting needed
@@ -30,6 +35,56 @@ describe("sourceConnUrl", () => {
     // Percent-encoded form is safe for SQL string embedding — no raw ' or spaces
     expect(url).toContain("p%40ss%3Aword");
     expect(url).not.toContain("p@ss:word");
+  });
+});
+
+// The subscription's CONNECTION is dialled by the target's tablesync/apply
+// workers, not by pgmig's pools, so the pools' statement_timeout=0 does not reach
+// it. On a Supabase source the postgres role is capped by the 2 min global
+// statement_timeout, which cancelled a >2 min initial COPY every 120 s in a
+// live run (2026-11-09, 4M rows, 16 tablesync restarts, never synced).
+describe("withNoStatementTimeout - subscription CONNECTION carries statement_timeout=0", () => {
+  test("URL with no query string gets an options parameter", () => {
+    expect(
+      withNoStatementTimeout("postgresql://postgres:pw@db.ref.supabase.co:5432/postgres"),
+    ).toBe(
+      "postgresql://postgres:pw@db.ref.supabase.co:5432/postgres?options=-c%20statement_timeout%3D0",
+    );
+  });
+
+  test("URL with a query string gets the parameter appended", () => {
+    expect(
+      withNoStatementTimeout("postgresql://u:p@db.x.supabase.co/postgres?sslmode=require"),
+    ).toBe(
+      "postgresql://u:p@db.x.supabase.co/postgres?sslmode=require&options=-c%20statement_timeout%3D0",
+    );
+  });
+
+  test("existing options keep their value and gain the timeout", () => {
+    expect(
+      withNoStatementTimeout(
+        "postgresql://u:p@h/db?sslmode=require&options=-c%20search_path%3Dpublic",
+      ),
+    ).toBe(
+      "postgresql://u:p@h/db?sslmode=require&options=-c%20search_path%3Dpublic%20-c%20statement_timeout%3D0",
+    );
+  });
+
+  test("a URL that already sets statement_timeout is left alone", () => {
+    const u = "postgresql://u:p@h/db?options=-c%20statement_timeout%3D600000";
+    expect(withNoStatementTimeout(u)).toBe(u);
+  });
+
+  test("percent-encoded password survives untouched", () => {
+    expect(withNoStatementTimeout("postgresql://postgres:p%40ss%3Aw%3Fd@h/db")).toBe(
+      "postgresql://postgres:p%40ss%3Aw%3Fd@h/db?options=-c%20statement_timeout%3D0",
+    );
+  });
+
+  test("keyword=value conninfo gets a quoted options keyword", () => {
+    expect(withNoStatementTimeout("host=db.x.supabase.co dbname=postgres user=postgres")).toBe(
+      "host=db.x.supabase.co dbname=postgres user=postgres options='-c statement_timeout=0'",
+    );
   });
 });
 
