@@ -25,6 +25,7 @@ import { reconcile } from "../src/steps/reconcile.ts";
 import { replicate } from "../src/steps/replicate.ts";
 import { watch } from "../src/steps/watch.ts";
 import { createSchema, seedSource } from "./annoying-schema.ts";
+import { growDisk } from "./disk.ts";
 
 const ORG_ID = process.argv[2] ?? "";
 if (!ORG_ID) {
@@ -46,6 +47,8 @@ const TGT_REGION = process.env.TGT_REGION ?? "eu-west-1";
 const SRC_ENGINE = process.env.SRC_ENGINE || undefined;
 const TGT_ENGINE = process.env.TGT_ENGINE || undefined;
 const INSTANCE_SIZE = process.env.INSTANCE_SIZE || undefined;
+// DISK_GB grows both disks before seeding (a multi-GB seed fills the default volume).
+const DISK_GB = Number(process.env.DISK_GB || 0);
 
 const secs = (t0: number): number => Math.round((Date.now() - t0) / 100) / 10;
 
@@ -80,6 +83,13 @@ async function main(): Promise<void> {
 
     log.step("waiting for ACTIVE_HEALTHY (~2-4 min)");
     await api.waitHealthy([srcRef, tgtRef], { pollSec: 15, timeoutMin: 10 });
+    if (DISK_GB) {
+      const [ds, dt] = await Promise.all([
+        growDisk(api, srcRef, DISK_GB),
+        growDisk(api, tgtRef, DISK_GB),
+      ]);
+      log.ok(`disks grown to ${DISK_GB} GB (src ${ds} s, tgt ${dt} s)`);
+    }
     await new Promise((r) => setTimeout(r, 20_000));
 
     const [srcPooler, tgtPooler] = await Promise.all([

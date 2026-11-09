@@ -17,13 +17,14 @@
  * After ACTIVE_HEALTHY on the new major plus a settle, it counts which
  * acknowledged ids exist. Deletes the project in `finally`. Costs money while
  * the project exists. Env: SRC_ENGINE, TARGET_VERSION, REGION, INSTANCE_SIZE,
- * SETTLE_SEC (180).
+ * DISK_GB (grow before seeding), SETTLE_SEC (180).
  */
 import { randomBytes } from "node:crypto";
 import postgres from "postgres";
 import { log } from "../src/log.ts";
 import { MgmtApi } from "../src/mgmt.ts";
 import { createSchema, seedSource } from "./annoying-schema.ts";
+import { growDisk } from "./disk.ts";
 
 const ORG_ID = process.argv[2] ?? "";
 if (!ORG_ID) {
@@ -41,6 +42,7 @@ const TARGET_VERSION = process.env.TARGET_VERSION || "17";
 const REGION = process.env.REGION || "ap-southeast-1";
 const INSTANCE_SIZE = process.env.INSTANCE_SIZE || undefined;
 const SETTLE_SEC = Number(process.env.SETTLE_SEC ?? 180);
+const DISK_GB = Number(process.env.DISK_GB || 0);
 const API = "https://api.supabase.com/v1";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -82,6 +84,7 @@ async function main(): Promise<void> {
       instanceSize: INSTANCE_SIZE,
     });
     await mg.waitHealthy([ref], { pollSec: 15, timeoutMin: 15 });
+    if (DISK_GB) log.ok(`disk grown to ${DISK_GB} GB in ${await growDisk(mg, ref, DISK_GB)} s`);
     await sleep(20_000);
     const pooler = await mg.getPooler(ref);
     const url = `postgresql://${pooler.user}:${pw}@${pooler.host}:5432/postgres?sslmode=require`;
