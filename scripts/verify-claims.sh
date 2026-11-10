@@ -66,8 +66,13 @@ chk "test: enabled-hook passthrough test" grep -qF 'fail loud at the API' test/c
 chk "doctor reads pg_db_role_setting"   grep -rq "pg_db_role_setting" src/
 
 echo "=== 5. Remaining source-level claims ==="
-chk "createProject passes NO instance size" \
-    sh -c "! grep -A8 'async createProject' src/mgmt.ts | grep -qiE 'size|instance'"
+# createProject takes an optional instanceSize for live harnesses (5604438);
+# the guide claim is that sandbox projects get default compute, so assert the
+# sandbox call sites pass no opts and mgmt sends the size only when set.
+chk "sandbox createProject passes NO instance size" \
+    sh -c "grep -F 'api.createProject(' src/steps/sandbox.ts | grep -q . && ! grep -F 'api.createProject(' src/steps/sandbox.ts | grep -qiE 'size|instance|\{'"
+chk "createProject sends desired_instance_size only when set" \
+    grep -qF '...(opts.instanceSize ? { desired_instance_size' src/mgmt.ts
 chk "prodBytes = downtime estimate"     src_has "for the extrapolated downtime estimate"
 chk "lab snapshots pristine datadir"    grep -rq "snapshot-old" src/upgrade/lab.ts
 chk "lab runs pg_upgrade --link"        grep -rq -- "pg_upgrade --link" src/upgrade/lab.ts
