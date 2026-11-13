@@ -20,10 +20,11 @@ import { log } from "../log.ts";
  * it PREVIEWS by default and only mutates the target with `--confirm`.
  *
  * Scope: extensions + roles (no passwords) + schema (DDL). The Supabase-specific
- * `auth`/`storage` ROW data is opt-in via `--with-auth-data` (dumps the auth
- * schema rows and restores them with FK triggers deferred - the auth.users FK
- * pre-step); without that flag it's skipped and `doctor` prints the exact manual
- * command when it detects a cross-schema FK into auth.
+ * `auth` ROW data is opt-in via `--with-auth-data`, which copies a SNAPSHOT: rows
+ * Auth writes afterwards are missing until `cutover --with-auth-data` reloads them
+ * inside the write stop. The initial copy does not need them (replicated rows skip
+ * FK checks on the subscriber), so the bootstrap copy is only for testing against
+ * the target before cutover.
  */
 
 /** Extensions that always exist on a fresh database — never worth "enabling". */
@@ -329,9 +330,10 @@ export function restoreSchemaCmd(targetUrl: string, file: string): string[] {
 /**
  * Pure: `pg_dump` argv for the ROW DATA of the cross-schema dependency schemas a
  * replicated table FKs into (canonically `auth`). Logical replication does NOT
- * carry these rows, but `public.<t>.user_id -> auth.users` means they must exist
- * on the target BEFORE the initial copy or every child row is FK-rejected. Data-
- * only (the schema objects are Supabase-managed and already present). We do NOT
+ * carry these rows; the app needs them on the target before writers resume there
+ * (`cutover --with-auth-data` reloads them inside the write stop). The subscriber
+ * itself skips FK checks, so the initial copy does not need them. Data-only (the
+ * schema objects are Supabase-managed and already present). We do NOT
  * pass `--disable-triggers` (that needs table ownership/superuser on the managed
  * auth tables) - the restore session sets `session_replication_role = replica`
  * instead, which is what defers FK enforcement during the load.
@@ -387,13 +389,13 @@ export interface BootstrapResult {
   applied: number;
 }
 
-interface SpawnStep {
+export interface SpawnStep {
   label: string;
   cmd: string[];
 }
 
 /** Run a dump/restore step, streaming its output. Throws on a non-zero exit. */
-async function spawnStep(st: SpawnStep): Promise<void> {
+export async function spawnStep(st: SpawnStep): Promise<void> {
   log.detail(`$ ${redactArgv(st.cmd)}`);
   const proc = Bun.spawn(st.cmd, { stdout: "inherit", stderr: "inherit" });
   const code = await proc.exited;
@@ -410,7 +412,7 @@ export async function bootstrap(
     outDir: string;
     allSchemas?: boolean;
     supabaseSource?: boolean;
-    /** Also dump+restore the auth-schema ROW data (the auth.users FK pre-step). */
+    /** Also dump+restore a SNAPSHOT of the auth-schema ROW data (cutover --with-auth-data reloads it). */
     withAuthData?: boolean;
   },
 ): Promise<BootstrapResult> {
@@ -509,9 +511,15 @@ export async function bootstrap(
     log.ok("roles + schema restored onto target");
   }
 
-  // ── 3. auth ROW data (opt-in: the auth.users cross-schema FK pre-step) ────
+  // ── 3. auth ROW data (opt-in snapshot; cutover --with-auth-data reloads it) ──
   if (opts.withAuthData) {
-    log.info("--- Auth row data (auth.users FK pre-step) ---");
+    log.info("--- Auth row data (snapshot) ---");
+    log.warn(
+      "auth rows copied now are a snapshot: sign-ups, password changes, sessions and refresh " +
+        "tokens written on the source afterwards are not on the target. Reload them inside the " +
+        "write stop with `pgmig cutover --with-auth-data`, which empties and reloads the target's " +
+        "auth tables.",
+    );
     const authFile = `${opts.outDir}/bootstrap-auth-data.sql`;
     const authDump: SpawnStep = {
       label: "dump auth data",
@@ -529,7 +537,7 @@ export async function bootstrap(
       result.applied++;
       await spawnStep(authRestore);
       result.applied++;
-      log.ok("auth row data restored onto target (FK prerequisite satisfied)");
+      log.ok("auth row data restored onto target (snapshot - reload at cutover)");
     }
   }
 
@@ -539,8 +547,8 @@ export async function bootstrap(
   } else if (!opts.confirm) {
     const authNote = opts.withAuthData
       ? "restores roles + schema + auth row data"
-      : "restores roles + schema (auth/storage ROW data is a separate step - re-run with " +
-        "--with-auth-data, or see doctor's cross-schema FK hint)";
+      : "restores roles + schema (auth ROW data moves at cutover with " +
+        "`cutover --with-auth-data`)";
     log.warn(
       `${result.planned} action(s) planned. Re-run with --confirm to apply - this MUTATES THE TARGET ` +
         `(enables extensions, ${authNote}).`,

@@ -1,3 +1,4 @@
+import * as dns from "node:dns/promises";
 import type { Config, Secrets } from "../config.ts";
 import { classifyConn, connect, type Db, type PgProvider } from "../db.ts";
 import { connectMySql, type MySqlConn } from "../engine/mysql.ts";
@@ -15,6 +16,7 @@ import {
   checkReplicationCapacity,
   subscribeGrantSQL,
 } from "./checks.ts";
+import { checkSourceRestrictions, type NetDeps } from "./network-check.ts";
 
 /**
  * `doctor` — an automated, re-runnable readiness checklist.
@@ -107,10 +109,10 @@ export function extensionRiskNote(extname: string): string | undefined {
 
 /**
  * Pure: of the tables we replicate, which OTHER schemas/tables do they FK into
- * that we are NOT replicating? Those referenced rows must already exist on the
- * target before the initial copy, or FK enforcement rejects the copied rows.
- * The canonical case: public.documents.user_id → auth.users (Supabase-managed,
- * migrated via dump/restore, not by this tool).
+ * that we are NOT replicating? The copy does not need those rows (the subscriber
+ * skips FK checks), but the app does once it writes to the target. The canonical
+ * case: public.documents.user_id -> auth.users (Supabase-managed, reloaded inside
+ * the write stop by `cutover --with-auth-data`).
  */
 export function externalDeps(fks: Fk[], replicated: string[]): string[] {
   const set = new Set(replicated);
@@ -122,17 +124,27 @@ export function externalDeps(fks: Fk[], replicated: string[]): string[] {
 }
 
 /**
- * Pure: the runnable dump/restore command for the cross-schema dependencies a
- * replicated table FKs into (the `auth.users` trap). Their ROW data must exist
- * on the target before the initial copy. Returns the exact `supabase db dump`
- * one-liner so the operator doesn't reconstruct it from prose.
+ * Pure: how to bring the rows a replicated table FKs into onto the target. Replicated
+ * rows skip FK checks on the subscriber (apply and initial-copy workers run with
+ * session_replication_role = replica; child rows arrived with no parent on plain
+ * 15.19 -> 17.11, 2026-11-13), so this belongs inside the write stop, where the rows
+ * are final: auth via `cutover --with-auth-data`, any other schema by the same
+ * dump/restore run by hand at that point.
  */
 export function externalDepDumpCommand(deps: string[]): string {
-  const schemas = [...new Set(deps.map((d) => d.split(".")[0]))].sort();
-  return (
-    `supabase db dump --db-url "$SOURCE_DB_URL" --data-only --schema ${schemas.join(",")} -f predeps.sql && ` +
-    `psql "$TARGET_DB_URL" --command 'SET session_replication_role = replica' -f predeps.sql`
-  );
+  const schemas = [...new Set(deps.map((d) => d.split(".")[0] ?? ""))].sort();
+  const other = schemas.filter((s) => s !== "auth");
+  const parts: string[] = [];
+  if (schemas.includes("auth"))
+    parts.push("auth: `pgmig cutover --with-auth-data` (reloads auth rows inside the write stop)");
+  if (other.length > 0)
+    parts.push(
+      `${other.join(",")}: inside the write stop, ` +
+        `supabase db dump --remote="$SOURCE_DB_URL" --data-only --schema ${other.join(",")} -f predeps.sql && ` +
+        `psql "$TARGET_DB_URL" --single-transaction --variable ON_ERROR_STOP=1 ` +
+        `--command 'SET session_replication_role = replica' -f predeps.sql`,
+    );
+  return parts.join("; ");
 }
 
 /**
@@ -241,6 +253,8 @@ export async function doctor(
     sqlServerConnect?: (url: string) => Promise<SqlServerConn>;
     /** Injected for tests; defaults to a live GET /v1/organizations via MgmtApi. */
     validateToken?: (token: string) => Promise<{ ok: boolean; status: number }>;
+    /** Injected for tests; defaults to the Management API + system DNS. */
+    networkDeps?: NetDeps;
   } = {},
 ): Promise<DoctorReport> {
   const r: DoctorReport = { pass: 0, warn: 0, fail: 0 };
@@ -264,10 +278,12 @@ export async function doctor(
       ? `source ref ${cfg.source.ref}  →  target ref ${cfg.target.ref}`
       : `source engine ${cfg.source.engine}  →  target ref ${cfg.target.ref}`,
   );
+  let tokenOk = false;
   {
     const validate = opts.validateToken ?? ((t: string) => new MgmtApi(t).validateToken());
     const tc = await checkAccessToken(secrets.SUPABASE_ACCESS_TOKEN, validate);
     (tc.level === "ok" ? ok : warn)(tc.message);
+    tokenOk = tc.level === "ok";
   }
 
   // Heterogeneous source (mysql/sqlserver): a mysql://-style DSN driven by Debezium CDC. The PG
@@ -348,6 +364,21 @@ export async function doctor(
     }
   } finally {
     await close();
+  }
+
+  // ── 5. source network restrictions vs the target's outbound address ─────
+  //    Supabase source + a working token only; a blocked target hangs, so check up front.
+  if (src.provider === "supabase" && tokenOk && secrets.SUPABASE_ACCESS_TOKEN) {
+    log.step("doctor: source network restrictions");
+    const api = new MgmtApi(secrets.SUPABASE_ACCESS_TOKEN);
+    const deps: NetDeps = opts.networkDeps ?? {
+      getRestrictions: (ref) => api.get(ref, "/network-restrictions"),
+      resolve4: (host) => dns.resolve4(host),
+      resolve6: (host) => dns.resolve6(host),
+    };
+    const v = await checkSourceRestrictions(cfg.source.ref, cfg.target.ref, deps);
+    const sink = { ok, warn, fail };
+    sink[v.level](v.message);
   }
 
   return summarize(r);
@@ -496,9 +527,9 @@ async function sourceChecks(source: Db, cfg: Config, s: Sink): Promise<void> {
   } else {
     for (const d of deps)
       s.warn(
-        `replicated tables FK into ${d} (not replicated) — its data MUST exist on the target ` +
-          `before the initial copy, or FK enforcement rejects the rows. Migrate ${d.split(".")[0]} ` +
-          `via dump/restore (supabase db dump) first.`,
+        `replicated tables FK into ${d} (not replicated). Replicated rows skip FK checks on ` +
+          `the target, so the copy works without it, but ${d}'s rows must be on the target ` +
+          "before writers resume there.",
       );
     log.detail(`fix: ${externalDepDumpCommand(deps)}`);
   }

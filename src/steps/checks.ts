@@ -6,6 +6,7 @@
 
 import type { Config } from "../config.ts";
 import type { Db } from "../db.ts";
+import { isSyncSlot } from "./replicate.ts";
 
 /** Minimal emit interface so preflight (log.*) and doctor (Sink) can both drive the check. */
 export interface CapacitySink {
@@ -119,6 +120,14 @@ export async function checkForeignReplicationSlots(
     return;
   }
   for (const f of foreign) {
+    if (isSyncSlot(f.slot_name)) {
+      sink.warn(
+        `initial-copy slot on source: "${f.slot_name}" (active=${f.active}) - another target's ` +
+          "subscription is still copying, or left a stale slot. `replicate` refuses to start " +
+          "while it exists: two targets copying at once can collide on the slot name.",
+      );
+      continue;
+    }
     sink.warn(
       `foreign logical replication slot on source: "${f.slot_name}" (plugin=${f.plugin ?? "?"}, ` +
         `active=${f.active}) - a competing CDC consumer (e.g. Artie, ClickPipes, PeerDB, Debezium) ` +

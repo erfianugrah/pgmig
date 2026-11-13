@@ -1,5 +1,6 @@
 import type { Config, Secrets } from "../config.ts";
 import type { Db } from "../db.ts";
+import type { AuthDataOpts } from "../steps/cutover.ts";
 import type { ReconcileMode } from "../steps/reconcile.ts";
 
 /** Which data-plane implementation backs a migration. */
@@ -21,6 +22,12 @@ export interface CutoverOpts {
    * reconcile/verify out-dir; defaults to `ledger`. Ignored by the native-PG engine.
    */
   outDir?: string;
+  /**
+   * Reload the target's Supabase auth rows from the source inside the write stop
+   * (`cutover --with-auth-data`). Native-PG engine only; a MySQL/SQL Server source has no
+   * auth schema.
+   */
+  authData?: AuthDataOpts;
 }
 
 /**

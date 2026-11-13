@@ -332,13 +332,20 @@ describe("filterSupabaseSchema", () => {
 });
 
 describe("externalDepDumpCommand (doctor remediation)", () => {
-  test("dedups + sorts the schemas behind the FK deps", () => {
-    const cmd = externalDepDumpCommand(["auth.users", "storage.objects", "auth.identities"]);
-    expect(cmd).toContain("--schema auth,storage");
+  test("dedups + sorts the non-auth schemas behind the FK deps; auth goes to cutover", () => {
+    const cmd = externalDepDumpCommand([
+      "auth.users",
+      "storage.objects",
+      "billing.plans",
+      "auth.identities",
+    ]);
+    expect(cmd).toContain("--schema billing,storage");
     expect(cmd).toContain("SET session_replication_role = replica");
+    expect(cmd).toContain("cutover --with-auth-data");
+    expect(cmd).not.toContain("--schema auth");
   });
 
-  test("single schema", () => {
-    expect(externalDepDumpCommand(["auth.users"])).toContain("--schema auth");
+  test("single non-auth schema", () => {
+    expect(externalDepDumpCommand(["storage.objects"])).toContain("--schema storage");
   });
 });

@@ -28,6 +28,8 @@ const HAVE_DBS = Boolean(process.env.TEST_SOURCE_DB_URL && process.env.TEST_TARG
 const d = HAVE_DBS ? describe : describe.skip;
 const TABLE = "public.itest";
 const TABLE2 = "public.itest2";
+const FK_PARENT = "public.itest_fk_parent";
+const FK_CHILD = "public.itest_fk_child";
 
 function buildConfig(): Config {
   return ConfigSchema.parse({
@@ -104,6 +106,8 @@ d("live replication + reconciliation", () => {
     await target.unsafe(`DROP TABLE IF EXISTS ${TABLE} CASCADE`).catch(() => {});
     await source.unsafe(`DROP TABLE IF EXISTS ${TABLE2} CASCADE`).catch(() => {});
     await target.unsafe(`DROP TABLE IF EXISTS ${TABLE2} CASCADE`).catch(() => {});
+    for (const db of [source, target])
+      await db.unsafe(`DROP TABLE IF EXISTS ${FK_CHILD}, ${FK_PARENT} CASCADE`).catch(() => {});
     await close();
   });
 
@@ -171,6 +175,80 @@ d("live replication + reconciliation", () => {
     }
   }, 60_000);
 
+  test("subscriber skips FK checks: child rows arrive with the parent table empty on the target", async () => {
+    const fkCfg = ConfigSchema.parse({
+      ...cfg,
+      replication: {
+        tables: [FK_CHILD],
+        publication: "itest_fk_pub",
+        slot: "itest_fk_slot",
+        subscription: "itest_fk_sub",
+      },
+      reconcile: { tables: [{ name: FK_CHILD }] },
+    });
+    await teardown(source, target, fkCfg);
+    for (const db of [source, target]) {
+      await db.unsafe(`DROP TABLE IF EXISTS ${FK_CHILD}, ${FK_PARENT} CASCADE`);
+      await db.unsafe(`CREATE TABLE ${FK_PARENT} (id int PRIMARY KEY)`);
+      await db.unsafe(
+        `CREATE TABLE ${FK_CHILD} (id int PRIMARY KEY, parent_id int NOT NULL REFERENCES ${FK_PARENT}(id) ON DELETE CASCADE)`,
+      );
+    }
+    await source.unsafe(`INSERT INTO ${FK_PARENT} SELECT g FROM generate_series(1, 5) g`);
+    await source.unsafe(`INSERT INTO ${FK_CHILD} SELECT g, g FROM generate_series(1, 5) g`);
+    await replicate(source, target, fkCfg, secrets);
+    await watch(source, target, fkCfg);
+    const count = async (t: string) =>
+      Number((await target.unsafe(`SELECT count(*)::int AS n FROM ${t}`))[0]?.n);
+    expect(await count(FK_PARENT)).toBe(0);
+    expect(await count(FK_CHILD)).toBe(5); // initial copy
+    await source.unsafe(`INSERT INTO ${FK_PARENT} VALUES (6)`);
+    await source.unsafe(`INSERT INTO ${FK_CHILD} VALUES (6, 6)`);
+    let n = 5;
+    for (let i = 0; i < 30 && n < 6; i++) {
+      n = await count(FK_CHILD);
+      if (n < 6) await new Promise((res) => setTimeout(res, 500));
+    }
+    expect(n).toBe(6); // streamed
+    // control: the same FK DOES reject a direct insert on the target
+    await expect(target.unsafe(`INSERT INTO ${FK_CHILD} VALUES (99, 99)`)).rejects.toThrow(
+      /foreign key/,
+    );
+    await teardown(source, target, fkCfg);
+  }, 60_000);
+
+  test("replicate refuses to start while another subscription's initial-copy slot is on the source", async () => {
+    await teardown(source, target, cfg);
+    const fake = "pg_99999_sync_1_1";
+    await source`SELECT pg_create_logical_replication_slot(${fake}, 'pgoutput')`;
+    try {
+      await expect(replicate(source, target, cfg, secrets)).rejects.toThrow(
+        /initial-copy slots from another subscription: pg_99999_sync_1_1/,
+      );
+      const [sub] =
+        await target`SELECT 1 FROM pg_subscription WHERE subname = ${cfg.replication.subscription}`;
+      expect(sub).toBeUndefined();
+    } finally {
+      await source`SELECT pg_drop_replication_slot(${fake})`;
+      await teardown(source, target, cfg);
+    }
+  }, 60_000);
+
+  test("replicate refuses service-owned tables on a Supabase-shaped source", async () => {
+    const authCfg = ConfigSchema.parse({
+      ...cfg,
+      replication: { ...cfg.replication, tables: [TABLE, "auth.users"] },
+    });
+    await source.unsafe("CREATE ROLE supabase_admin NOLOGIN");
+    try {
+      await expect(replicate(source, target, authCfg, secrets)).rejects.toThrow(
+        /service-owned tables: auth\.users/,
+      );
+    } finally {
+      await source.unsafe("DROP ROLE supabase_admin");
+    }
+  }, 60_000);
+
   test("replicate: REFRESH PUBLICATION picks up a table added after the subscription", async () => {
     await resetAndSync(50);
     // A second table, created + published AFTER the subscription exists.
@@ -192,4 +270,16 @@ d("live replication + reconciliation", () => {
     }
     expect(copied).toBe(10);
   }, 60_000);
+
+  // Last on purpose: reads the target's whole DDL log after every replicate above.
+  test.if(process.env.TEST_TARGET_LOGS_DDL === "1")(
+    "no subscription password in the target's DDL log (log_statement=ddl)",
+    async () => {
+      const [r] = await target.unsafe(`SELECT pg_read_file('log/postgresql.log') AS log`);
+      const text = String(r?.log ?? "");
+      expect(text).toContain(`CREATE TABLE ${FK_CHILD}`); // control: DDL IS being logged
+      expect(text).not.toContain(":pw@");
+      expect(text).not.toMatch(/CREATE SUBSCRIPTION/i);
+    },
+  );
 });

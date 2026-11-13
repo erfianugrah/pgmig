@@ -16,8 +16,9 @@
 name: pgmig-itest
 
 services:
+  # PGMIG_SOURCE_IMAGE / PGMIG_TARGET_IMAGE pick the majors (e.g. postgres:15 -> postgres:17).
   source:
-    image: postgres:16
+    image: ${PGMIG_SOURCE_IMAGE:-postgres:16}
     command:
       - postgres
       - -c
@@ -36,14 +37,24 @@ services:
 
   # L-16: match the rehearsal compose settings so the integration tier exercises
   # the same worker capacity limits as the real prod-scale environment.
+  # The target logs DDL to a file it can read back (pg_read_file), like a new Supabase
+  # project (log_statement=ddl): the replicate test checks no subscription password lands there.
   target:
-    image: postgres:16
+    image: ${PGMIG_TARGET_IMAGE:-postgres:16}
     command:
       - postgres
       - -c
       - max_logical_replication_workers=4
       - -c
       - max_worker_processes=8
+      - -c
+      - logging_collector=on
+      - -c
+      - log_statement=ddl
+      - -c
+      - log_directory=log
+      - -c
+      - log_filename=postgresql.log
     environment:
       POSTGRES_PASSWORD: pw
     healthcheck:
@@ -64,6 +75,7 @@ services:
       # a plain Postgres container speaks no TLS.
       TEST_SOURCE_DB_URL: postgresql://postgres:pw@source:5432/postgres?sslmode=disable
       TEST_TARGET_DB_URL: postgresql://postgres:pw@target:5432/postgres
+      TEST_TARGET_LOGS_DDL: "1"
     depends_on:
       source:
         condition: service_healthy

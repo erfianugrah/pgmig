@@ -5,6 +5,7 @@ import {
   diffExtensionVersions,
   diffHashColumns,
   extensionRiskNote,
+  externalDepDumpCommand,
   externalDeps,
   type Fk,
   parsePgMajor,
@@ -244,6 +245,23 @@ describe("providerNotes", () => {
     const notes = providerNotes({ provider: "generic" }, { provider: "neon" });
     expect(notes).toHaveLength(1);
     expect(notes[0]).toStartWith("target provider note — ");
+  });
+});
+
+describe("externalDepDumpCommand", () => {
+  test("auth deps point at cutover --with-auth-data, not a pre-copy dump", () => {
+    const fix = externalDepDumpCommand(["auth.users"]);
+    expect(fix).toContain("pgmig cutover --with-auth-data");
+    expect(fix).not.toContain("supabase db dump");
+  });
+
+  test("other schemas get the dump/restore, inside the write stop, one transaction", () => {
+    const fix = externalDepDumpCommand(["auth.users", "billing.plans", "billing.prices"]);
+    expect(fix).toContain("pgmig cutover --with-auth-data");
+    expect(fix).toContain("billing: inside the write stop");
+    expect(fix).toContain("--schema billing -f predeps.sql");
+    expect(fix).toContain("--single-transaction");
+    expect(fix).toContain("SET session_replication_role = replica");
   });
 });
 

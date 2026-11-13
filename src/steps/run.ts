@@ -50,6 +50,8 @@ export interface RunOptions {
   /** L-4: thread outDir through to reconcile so the JSON report goes to the right place. */
   outDir?: string;
   reconcile?: { mode?: ReconcileMode; buckets?: number; maxExamples?: number };
+  /** cutover phase: reload the target's Supabase auth rows from the source (dump in outDir). */
+  withAuthData?: boolean;
 }
 
 export async function run(
@@ -132,6 +134,13 @@ async function runPhase(
       return engine.cutover(source, target, cfg, {
         maxLagWaitSec: opts.maxLagWaitSec ?? 300,
         outDir: opts.outDir,
+        authData: opts.withAuthData
+          ? {
+              sourceUrl: secrets.SOURCE_DB_URL,
+              targetUrl: secrets.TARGET_DB_URL,
+              outDir: opts.outDir ?? "ledger",
+            }
+          : undefined,
       });
   }
 }

@@ -128,6 +128,11 @@ program
   .option("--json", "emit NDJSON events on stdout (human logs → stderr)", false)
   .option("--confirm-writes-stopped", "required to allow --through cutover", false)
   .option("--max-lag-wait <sec>", "cutover lag-drain wait", "300")
+  .option(
+    "--with-auth-data",
+    "cutover phase: reload the target's auth rows from the source inside the write stop",
+    false,
+  )
   .action((o) => {
     const through = o.through as Phase;
     if (!PHASES.includes(through)) {
@@ -142,6 +147,7 @@ program
         json: Boolean(o.json),
         confirmWritesStopped: Boolean(o.confirmWritesStopped),
         maxLagWaitSec: Number(o.maxLagWait),
+        withAuthData: Boolean(o.withAuthData),
       });
       if (!r.ok) process.exitCode = 1;
     });
@@ -197,7 +203,7 @@ program
   )
   .option(
     "--with-auth-data",
-    "also dump+restore the auth-schema ROW data (the auth.users FK pre-step) with FK triggers deferred",
+    "also copy a SNAPSHOT of the auth-schema ROW data (testing only; `cutover --with-auth-data` reloads it inside the write stop)",
     false,
   )
   .action((o) =>
@@ -257,16 +263,26 @@ program
   .option("--max-lag-wait <sec>", "seconds to wait for lag to drain", "300")
   .option(
     "--out-dir <path>",
-    "directory holding the translated-schema sign-off manifest (heterogeneous sources)",
+    "directory for the auth dump (--with-auth-data) and the translated-schema sign-off manifest (heterogeneous sources)",
     "ledger",
   )
+  .option(
+    "--with-auth-data",
+    "after the drain, reload the target's Supabase auth rows from the source in one transaction " +
+      "(stop the source's Auth traffic too)",
+    false,
+  )
   .action((o) =>
-    withDb(({ source, target }, cfg) =>
-      engineFor(cfg).cutover(source, target, cfg, {
+    withDb(({ source, target }, cfg) => {
+      const secrets = o.withAuthData ? loadSecrets() : null;
+      return engineFor(cfg).cutover(source, target, cfg, {
         maxLagWaitSec: Number(o.maxLagWait),
         outDir: o.outDir,
-      }),
-    ),
+        authData: secrets
+          ? { sourceUrl: secrets.SOURCE_DB_URL, targetUrl: secrets.TARGET_DB_URL, outDir: o.outDir }
+          : undefined,
+      });
+    }),
   );
 
 program

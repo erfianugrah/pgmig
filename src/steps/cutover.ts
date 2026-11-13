@@ -1,25 +1,122 @@
+import { mkdirSync, writeFileSync } from "node:fs";
 import type { Config } from "../config.ts";
 import type { Db } from "../db.ts";
 import { qi, withRetry } from "../db.ts";
 import { log } from "../log.ts";
+import { dumpAuthDataCmd, type SpawnStep, spawnStep } from "./bootstrap.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** `cutover --with-auth-data`: where the auth rows come from and go to. */
+export interface AuthDataOpts {
+  /** pg_dump source: direct host or SESSION pooler (the transaction pooler breaks pg_dump). */
+  sourceUrl: string;
+  targetUrl: string;
+  /** Where the dump lands. It holds password hashes and refresh tokens. */
+  outDir: string;
+  /** Injected for tests; defaults to running the command. */
+  spawn?: (st: SpawnStep) => Promise<void>;
+}
+
+/** Pure: one DELETE per target auth table (names already quote_ident'ed by the query). */
+export function authClearSql(tables: string[]): string {
+  return tables.map((t) => `DELETE FROM ${t};\n`).join("");
+}
+
+/**
+ * Pure: `psql` argv that empties the target's auth tables and loads the source's auth rows
+ * in ONE transaction. `session_replication_role = replica` comes first so neither the
+ * DELETEs nor the load fire FK triggers: an ON DELETE CASCADE from a replicated table to
+ * auth.users must not empty that table, and TRUNCATE is refused on an FK-referenced table
+ * (both checked on plain 17.11, 2026-11-13). Stop-on-error, so a failed load commits nothing.
+ */
+export function restoreAuthAtCutoverCmd(
+  targetUrl: string,
+  clearFile: string,
+  dataFile: string,
+): string[] {
+  return [
+    "psql",
+    "--single-transaction",
+    "--variable",
+    "ON_ERROR_STOP=1",
+    "--command",
+    "SET session_replication_role = replica",
+    "-f",
+    clearFile,
+    "-f",
+    dataFile,
+    "-d",
+    targetUrl,
+  ];
+}
+
+/**
+ * Copy the source's auth rows onto the target inside the write stop. Logical replication
+ * never carries them (service-owned schema), and a copy taken at bootstrap misses every
+ * sign-up, password change, session and refresh token written since: a refresh token used
+ * on the source after the copy is unknown at the target (supabase-lab session-carry S03a).
+ * The target's auth tables are emptied first, so whatever bootstrap or a test login left
+ * there is replaced; auth.schema_migrations is the target Auth's own and is left alone.
+ */
+async function copyAuthAtCutover(target: Db, a: AuthDataOpts): Promise<void> {
+  log.step("cutover: auth rows (inside the write stop)");
+  log.warn(
+    "Auth on the SOURCE must be stopped too: a sign-in or token refresh there after the dump " +
+      "is not on the target, and that user has to sign in again.",
+  );
+  const rows = await target<{ t: string }[]>`
+    SELECT quote_ident(n.nspname) || '.' || quote_ident(c.relname) AS t
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'auth' AND c.relkind IN ('r', 'p') AND c.relname <> 'schema_migrations'
+    ORDER BY 1`;
+  if (rows.length === 0)
+    throw new Error(
+      "--with-auth-data: the target has no auth tables (not a Supabase target?) - " +
+        "refusing before anything is dumped",
+    );
+  const run = a.spawn ?? spawnStep;
+  mkdirSync(a.outDir, { recursive: true });
+  const clearFile = `${a.outDir}/cutover-auth-clear.sql`;
+  const dataFile = `${a.outDir}/cutover-auth-data.sql`;
+  writeFileSync(clearFile, authClearSql(rows.map((r) => r.t)));
+  try {
+    await run({ label: "dump auth data", cmd: dumpAuthDataCmd(a.sourceUrl, dataFile) });
+    await run({
+      label: "restore auth data",
+      cmd: restoreAuthAtCutoverCmd(a.targetUrl, clearFile, dataFile),
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(
+      `auth copy failed (${msg}) - the restore is one transaction, so nothing was committed ` +
+        "on the target, and the subscription is still in place. Fix the cause and re-run cutover.",
+    );
+  }
+  log.ok(
+    `auth rows reloaded: ${rows.length} target auth tables emptied and loaded in one transaction`,
+  );
+  log.warn(
+    `${dataFile} holds password hashes and refresh tokens - delete it once cutover is verified`,
+  );
+}
 
 /**
  * Final cutover. Caller MUST have already stopped application writes to the source.
  *  0. refuse unless every table of our subscription finished initial sync ('r')
  *  1. wait for replication lag -> 0
  *  2. (sequences) re-sync any sequences listed (none for uuid/text PKs)
- *  3. drop the subscription on the target (safely: DISABLE → detach slot → DROP)
+ *  3. (--with-auth-data) reload the target's auth rows from the source
+ *  4. drop the subscription on the target (safely: DISABLE -> detach slot -> DROP)
  *
- * Does NOT repoint your app or re-enable source writes — that is a human decision.
+ * Does NOT repoint your app or re-enable source writes - that is a human decision.
  * Never re-enable writes on the source afterwards (split-brain).
  */
 export async function cutover(
   source: Db,
   target: Db,
   cfg: Config,
-  opts: { sequences?: string[]; maxLagWaitSec?: number },
+  opts: { sequences?: string[]; maxLagWaitSec?: number; authData?: AuthDataOpts },
 ): Promise<void> {
   log.step("cutover");
   log.warn("Assuming application writes to the SOURCE are already stopped. If not, stop them now.");
@@ -158,7 +255,10 @@ export async function cutover(
     }
   }
 
-  // 3. drop subscription — C-4: use the safe three-step sequence from teardown.ts:
+  // 3. auth rows, before the drop: a failed copy leaves the subscription for a re-run.
+  if (opts.authData) await copyAuthAtCutover(target, opts.authData);
+
+  // 4. drop subscription - C-4: use the safe three-step sequence from teardown.ts:
   //    DISABLE (stops the walreceiver) → SET slot_name=NONE (detaches remote slot so
   //    DROP doesn't try to drop it on the source) → DROP.
   //    Skipping DISABLE risks a DROP that hangs waiting for an active walreceiver.
