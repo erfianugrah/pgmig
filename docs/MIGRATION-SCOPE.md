@@ -60,7 +60,7 @@ pgmig command for each.
 | 2 | Edge Function / project secrets (env) | `config-sync` (`projectSecrets`, opt-in) | `GET/POST /secrets` | plaintext; dry-run redacts |
 | 3 | Auth settings (providers, SMTP host, hooks, rate limits, redirect URLs) | `config-sync` (`auth`) | `/config/auth` | plan-gated hook families (password/MFA verification attempt) are dropped when disabled - PATCHing them at all earns HTTP 402 on orgs without the entitlement (verified 2026-07-30); enabled ones pass through and fail loud |
 | 4 | Auth **integration** secrets (SMTP pass, OAuth client secrets, SMS tokens, hook secrets) | `config-sync` (`secrets`, opt-in) | `/config/auth` | off by default |
-| 5 | **JWT signing secret + API keys (anon/service)** | **never** | — | new project = new keys **by design**; all sessions invalidate, app must re-key + users re-login |
+| 5 | **JWT signing secret + API keys (anon/service)** | **never** | — | new project = new keys **by design**; the app must re-key. Sessions survive only if the auth rows were reloaded at cutover (`cutover --with-auth-data`), the client's `storageKey` is pinned to the old key and it refreshes once; otherwise users sign in again (RUNBOOK section 9) |
 | 6 | Realtime settings | `config-sync` (`realtime`) | `/config/realtime` | — |
 | 7 | Realtime **publications** (which tables broadcast) | manual | dashboard → Database → Publications | re-enable per table |
 | 8 | PostgREST / Data API settings | `config-sync` (`postgrest`) | `/postgrest` | `jwt_secret` is excluded intentionally (new project keeps new signing material) |

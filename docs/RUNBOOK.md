@@ -37,7 +37,7 @@ answers up front is what makes the rest of the runbook mechanical.
 | Postgres version + `wal_level` | `show server_version; show wal_level;` | logical replication needs `wal_level=logical` and target version ≥ source |
 | Data tables to replicate | your schema | the only thing this tool copies — enumerate them in config |
 | Generated columns | `\d+ <table>` | STORED generated columns are excluded from the reconcile hash automatically |
-| **Cross-schema FKs into `auth`** | inspect FKs | **referenced rows (e.g. `auth.users`) must exist on the target BEFORE the copy** or every child row is FK-rejected |
+| **Cross-schema FKs into `auth`** | inspect FKs | the copy does not need the referenced rows (the target skips FK checks on replicated rows), the app does: **`cutover --with-auth-data` reloads `auth` inside the write stop** |
 | Owned sequences (serial/IDENTITY) | `\d <table>` | resynced at cutover; none needed for uuid/text PKs |
 | Storage buckets / objects | dashboard | NOT carried (managed schema) - recreate buckets; the `storage` step pushes objects but auto-creates buckets **private** (restore visibility) |
 | Edge Functions | dashboard | transferred separately (`functions` step) or skipped if none |
@@ -213,31 +213,38 @@ and use `SOURCE_REPLICATION_URL` (Option C above).
 
 ## 6. Restore everything the tool does NOT replicate — onto the target, in order
 
-Logical replication carries **table rows only** — no DDL, no roles, no `auth`/`storage`
-schemas. Any FK from a replicated table into `auth.users` means the **referenced auth rows
-must exist on the target before the copy**, or every child row is rejected. Connection here
-can be the **pooler** (read for dump, write for restore) — direct is not required for this step.
+Logical replication carries **table rows only** - no DDL, no roles, no `auth`/`storage`
+schemas. Replicated rows skip FK checks on the target (the apply and initial-copy workers run
+with `session_replication_role = replica`; a child table copied and streamed with its parent
+table empty, 15.19 -> 17.11, 2026-11-13, and the integration tier keeps checking it), so an FK
+from a replicated table into `auth.users` does not block the copy. The app needs those rows
+before it writes to the target, and Auth keeps writing them on the source until the write
+stop, so they move at cutover: `bun start cutover --with-auth-data` (9c). Connection here can
+be the **pooler** (read for dump, write for restore) - direct is not required for this step.
 
 > **Preferred: `bun start bootstrap --confirm`.** It does 6a–6c for the roles + schema +
 > extensions automatically, **without Docker** (the `supabase db dump` path below shells
 > `pg_dump` inside a version-matched container). For a Supabase source it auto-excludes the
 > managed schemas and filters the reserved roles (`anon`/`supabase_*`/`postgres`/…) exactly
 > like `supabase db dump`, so you never hit the `supabase_admin` ownership / `cli_login_postgres`
-> grant errors the manual path warns about below. Pass **`--with-auth-data`** to also do the
-> `auth` ROW data (the `auth.users` FK pre-step) in the same run - it dumps the auth-schema
-> rows and restores them with `session_replication_role = replica` so FK triggers are deferred
-> during the load (`bun start bootstrap --with-auth-data --confirm`). Without that flag the auth
-> data is skipped (see step 6d / the FK-trap command `doctor` prints). The manual `supabase db
-> dump` flow below remains the fallback when you can't run the system `pg_dump`/`pg_dumpall`.
+> grant errors the manual path warns about below. **`--with-auth-data`** also copies a
+> SNAPSHOT of the `auth` rows (restored with `session_replication_role = replica`), which is
+> only useful for testing against the target before cutover: sign-ups, password changes,
+> sessions and refresh tokens written on the source afterwards are not in it. `cutover
+> --with-auth-data` empties the target's auth tables and reloads them inside the write stop, so
+> it replaces the snapshot. The manual `supabase db dump` flow below remains the fallback when
+> you can't run the system `pg_dump`/`pg_dumpall`.
 
 ```bash
 SRC="<SOURCE_POOLER_OR_DIRECT_URL>"
 TGT="<TARGET_POOLER_URL>"
 
 # 6a. dump roles, schema (DDL+RLS+functions), and the auth-schema DATA from the source
-supabase db dump --db-url "$SRC" -f roles.sql  --role-only
-supabase db dump --db-url "$SRC" -f schema.sql
-supabase db dump --db-url "$SRC" -f auth.sql   --data-only --schema auth --use-copy \
+#     (CLI v3: --remote=<url>; --db-url still works but is deprecated). The auth data here is
+#     a snapshot for testing; for the live move it is reloaded at cutover (9c).
+supabase db dump --remote="$SRC" -f roles.sql  --role-only
+supabase db dump --remote="$SRC" -f schema.sql
+supabase db dump --remote="$SRC" -f auth.sql   --data-only --schema auth --use-copy \
   -x auth.schema_migrations   # SELECT-only for postgres on managed targets; see below
 
 # 6b. enable non-default extensions on the target FIRST (dashboard → Database → Extensions,
@@ -283,10 +290,16 @@ non-Supabase source.)
 **Firewall / network reachability (non-Supabase or self-managed source).** The subscription's
 WAL stream is dialed *by the target's walreceiver*, not from your laptop — so the **source**
 must accept inbound connections from the **target's egress IPs** on the Postgres port, and (if
-the source enforces it) `pg_hba.conf` must permit the replication role from those IPs. Supabase→
-Supabase sidesteps this (the dial goes over Supabase's internal network), but for an Azure /
-self-hosted / cloud source you must allowlist the subscriber's egress IPs first, or
-`CREATE SUBSCRIPTION` connects but the stream never starts. (Azure: *Server → Networking →
+the source enforces it) `pg_hba.conf` must permit the replication role from those IPs. Supabase ->
+Supabase is no exception once the source has **network restrictions** on: the source sees the
+target project's own outbound address, and a blocked target does not get a refusal,
+`CREATE SUBSCRIPTION` hangs until a statement timeout (supabase-lab replica-routing RR12/RR13,
+2026-11-11). Without the IPv4 add-on on the source that address is the target db host's AAAA
+(allow it as a /128); with the add-on the target connects over IPv4 from an address that is
+not in DNS and differs per target (read it on the target with `pg_net` against an IP echo
+service, allow it as a /32). `doctor` checks the IPv6 case and prints the command for either.
+For an Azure / self-hosted / cloud source you must allowlist the subscriber's egress IPs first,
+or `CREATE SUBSCRIPTION` connects but the stream never starts. (Azure: *Server → Networking →
 Firewall rules*; capture the target host's outbound IPs and add one rule per IP.) Likewise
 `pg_dump`/`pg_dumpall` for the pre-step must reach the source from wherever you run `bootstrap`.
 
@@ -301,8 +314,9 @@ bun start preflight
 
 `doctor` must end `READY` (warnings ok). It confirms: target reachable, target version ≥
 source, target role can `CREATE SUBSCRIPTION`, **target has all source extensions**, **your
-data tables exist on the target (schema loaded)**, and that no cross-schema FK is missing its
-prerequisite data. **Stop if any `✗`.**
+data tables exist on the target (schema loaded)**, which cross-schema FKs need rows moved at
+cutover, and, for a Supabase source with network restrictions, whether the target's address is
+allowed. **Stop if any `✗`.**
 
 ---
 
@@ -327,6 +341,28 @@ over, run `bun start teardown` first.
 > `?options=-c%20statement_timeout%3D0` on `SOURCE_REPLICATION_URL`. Measured 2026-11-09, 4M rows
 > on Small: 16 restarts before the fix, a 196.9 s copy after it
 > ([research note](research/2026-11-09-pg15-to-17-live.md)).
+
+**Several targets from one source (a service split): one at a time.** Each table's initial
+copy uses a slot named `pg_<subscription oid>_sync_<table oid>_<system identifier>` on the
+source. New Supabase projects share a system identifier and often the same OIDs, so two
+targets copying at once can compute the same name, and the first to finish drops the slot the
+other still needs: that target's table stays in state `f` with its row count equal and never
+streams (supabase-lab replica-routing RR11, 2026-11-10). `replicate` refuses to create a
+subscription while any such slot exists on the source; start the next target once the previous
+one shows every table `r`, and before cutting a service over, insert a marker row on the source
+and check it arrives (equal row counts do not prove streaming).
+
+**The source password stays out of the target's logs.** `CREATE SUBSCRIPTION` is DDL and new
+Supabase projects log DDL (`log_statement = ddl`), so its CONNECTION string lands in the
+target's Postgres logs. `replicate` issues it on one session after `SET log_statement = 'none'`
+(it warns if the role may not change that setting). Anything else that rewrites the connection
+by hand (`ALTER SUBSCRIPTION ... CONNECTION`) needs the same `SET` first.
+
+**Service-owned schemas are refused.** On a Supabase-shaped source `replicate` rejects tables
+in `auth`, `storage`, `realtime`, `supabase_functions`, `supabase_migrations` and `vault`: they
+change with the services' own migrations, and a column added on the source stalls every table
+in the subscription. A lab subscription with `auth.users` and `auth.identities` between two
+projects never finished its initial copy (supabase-lab edge-resilience W09/W14/W15, 2026-08).
 
 ---
 
@@ -367,23 +403,36 @@ Run through these **before** you stop writes. If any check fails, address it fir
   each custom login role's password: `ALTER ROLE <name> WITH PASSWORD '<new-password>';`
 - **Storage copy method.** If you have Storage objects, decide whether to use the `storage`
   command (for S3-protocol-compatible targets) or a manual copy script.
-- **JWT secret / API keys are NEVER copied.** Existing user sessions will invalidate after
-  cutover. Your application must use the new project's keys. Update env vars before
-  repointing the app.
+- **JWT secret / API keys are NEVER copied, but sessions can survive.** With the auth rows
+  reloaded at cutover (`--with-auth-data`), passwords come across, and a refresh token the
+  client already holds mints a session on the new project with no new login (supabase-lab
+  tenant-promotion P01). The access token it holds was signed by the old project, so the new
+  one refuses it until the client refreshes (session-carry S02a/b), and supabase-js does not
+  refresh on a 401 by itself (client-retries CR02h). supabase-js stores the session under
+  `sb-<first label of the project hostname>-auth-token` by default, so a client pointed at the
+  new URL does not find it unless `storageKey` is set to the old key. Calling
+  `supabase.auth.refreshSession()` once after the switch should cover the access token (not run
+  from a browser). An MFA-verified (aal2) session keeps aal2 only if `auth.mfa_amr_claims` is
+  copied, which the full auth reload does (session-carry S04). Without these steps users sign in
+  once. Update the app's URL and keys before repointing it.
 
 Keep one dashboard view open for migration day: API RPS + p95/p99, 4xx/5xx + timeouts, DB CPU/mem/disk-latency/IOPS, DB connections (+ pooler), and the `pgmig watch`/`status` output (or its `--log-file`).
 
 ```bash
 # 9a. STOP application writes to the SOURCE (put the app in read-only / take it down).
-#     This is the only moment of downtime.
+#     This is the only moment of downtime. Stop sign-ins and token refreshes against the
+#     source's Auth too: anything Auth writes after the 9c dump is not on the target.
 
 # 9b. verify source == target (writes stopped, data should match):
 bun start reconcile                   # chunked checksum; must print RECONCILE PASSED
 #   (full-table variant: bun start reconcile --mode full)
 
-# 9c. drain replication lag to zero and drop the subscription:
-bun start cutover                     # default waits up to 300s for lag to drain
-#   (override: bun start cutover --max-lag-wait 600)
+# 9c. drain replication lag to zero, resync sequences, reload auth rows (one transaction:
+#     the target's auth tables are emptied and loaded; auth.schema_migrations is left alone;
+#     the dump in --out-dir holds password hashes, delete it afterwards), drop the subscription:
+bun start cutover --with-auth-data    # default waits up to 300s for lag to drain
+#   (override: bun start cutover --with-auth-data --max-lag-wait 600)
+#   If the auth reload fails nothing is committed and the subscription stays; fix and re-run.
 
 # 9d. load any deferred schedule/cron migration on the TARGET (the one skipped earlier):
 psql "$TARGET_DB_URL" -f <path/to/deferred_schedule_migration.sql>
@@ -472,9 +521,11 @@ domain, pgsodium key, read replicas, CLI-only GUCs) lives in the canonical scope
 > before re-applying. CLI-only system overrides (`shared_buffers` et al. via `supabase
 > postgres-config`) are likewise not synced; re-set them on the target if the source customised them.
 
-> **A new Supabase project has a new JWT secret + anon/service keys.** Every existing user JWT
-> and session is signed with the OLD secret, so all users must **re-login** after cutover.
-> Update the app's database URL + keys to the new project as part of step 9e.
+> **A new Supabase project has a new JWT secret + anon/service keys.** Every access token users
+> hold is signed with the OLD key and is refused by the new project until the client refreshes;
+> whether they must sign in again depends on the auth reload at cutover and the client's
+> `storageKey` (section 9, safety-net checklist). Update the app's database URL + keys to the
+> new project as part of step 9e.
 
 Storage objects and Edge Functions, if any, transfer separately:
 - **Storage:** `bun start storage <localDir>` (skip if no buckets). The push auto-creates missing buckets but lands them **private** - restore public visibility (`update storage.buckets set public = true where id = '<bucket>';`) or public URLs return 400 "Bucket not found" (verified 2026-07-30).
@@ -589,15 +640,15 @@ project becomes a cold standby.
 
 | Command | What it does |
 |---|---|
-| `bun start run [--through P] [--json] [--confirm-writes-stopped] [--max-lag-wait SEC]` | autonomous pipeline (preflight->replicate->watch->reconcile[->cutover]); exit 0 iff the requested range passed. For CI/Lambda. |
+| `bun start run [--through P] [--json] [--confirm-writes-stopped] [--max-lag-wait SEC] [--with-auth-data]` | autonomous pipeline (preflight->replicate->watch->reconcile[->cutover]); exit 0 iff the requested range passed. For CI/Lambda. |
 | `bun start status [--json] [--require-synced]` | one-shot replication snapshot (sub state, srsubstate, slot active, WAL retained, lag) for a scheduled watcher |
 | `bun start doctor [--source-only]` | automated readiness checklist (connection shape, reachability, wal_level, replica identity, reconcile hashColumns vs live schema, cross-schema FK deps, target version/grant/extensions/schema-loaded, extension version mismatches, foreign replication slots, custom `pg_db_role_setting` GUC overrides) |
 | `bun start preflight` | read-only hard-gate checks; throws on failure |
 | `bun start bootstrap [--confirm] [--all-schemas] [--with-auth-data] [--out-dir P]` | prepare the TARGET: enable extensions + restore roles + schema from source (Supabase-aware role/schema filter); `--with-auth-data` also loads the auth-schema row data (FK pre-step); preview unless `--confirm` |
-| `bun start replicate` | publication + slot + subscription (starts initial copy) |
+| `bun start replicate` | publication + slot + subscription (starts initial copy); refuses service-owned tables and another target's in-flight initial copy |
 | `bun start watch` | poll initial-sync state + WAL-bloat watchdog |
 | `bun start reconcile [--mode chunked|full] [--buckets N] [--max-examples N] [--out-dir P]` | checksum source vs target |
-| `bun start cutover [--max-lag-wait SEC] [--out-dir P]` | drain lag to 0, resync owned sequences, drop subscription |
+| `bun start cutover [--max-lag-wait SEC] [--out-dir P] [--with-auth-data]` | drain lag to 0, resync owned sequences, (with `--with-auth-data`) empty and reload the target's auth rows in one transaction, drop subscription |
 | `bun start teardown` | drop subscription/slot/publication safely (idempotent) |
 | `bun start translate [--out-dir P] [--apply] [--sign-off] [--json]` | draft target Postgres DDL from a non-Postgres source (e.g. MySQL); never auto-applies; `--sign-off` ratifies the draft so cutover may proceed |
 | `bun start config-sync [--dry-run]` | copy non-data config via Management API (secrets stripped) |

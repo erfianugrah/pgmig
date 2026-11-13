@@ -58,6 +58,15 @@ chk "cutover setval()s owned sequences" grep -rqi "setval" src/steps/cutover.ts
 chk "cutover drops subscription"        grep -rqi "DROP SUBSCRIPTION" src/steps/cutover.ts
 chk "reconcile prints RECONCILE PASSED" grep -rq "RECONCILE PASSED" src/
 chk "config-sync strips secrets by default" grep -rqi "strip" src/steps/config-sync.ts
+chk "cutover reloads auth rows (--with-auth-data)" grep -qF "copyAuthAtCutover" src/steps/cutover.ts
+chk "cutover auth reload: replica role, one transaction" grep -qF "restoreAuthAtCutoverCmd" src/steps/cutover.ts
+chk "replicate keeps the password out of target logs" grep -qF "SET log_statement = 'none'" src/steps/replicate.ts
+chk "replicate refuses in-flight initial-copy slots" grep -qF "syncSlotConflict" src/steps/replicate.ts
+chk "replicate refuses service-owned tables" grep -qF "SERVICE_OWNED_SCHEMAS" src/steps/replicate.ts
+chk "doctor checks source network restrictions" grep -qF "checkSourceRestrictions" src/steps/doctor.ts
+chk "test: subscriber skips FK checks (integration)" grep -qF "subscriber skips FK checks" test/integration.test.ts
+chk "docs: no FK-rejected premise left" sh -c '! grep -rqi "FK-rejected" README.md docs/RUNBOOK.md src/'
+chk "cli has flag --with-auth-data on cutover" grep -qF "after the drain, reload the target" src/cli.ts
 chk "config-sync references jwt"        grep -rqi "jwt" src/steps/config-sync.ts
 chk "config-sync: plan-gated hook guard present" \
     grep -qF 'hook_password_verification_attempt' src/steps/config-sync.ts

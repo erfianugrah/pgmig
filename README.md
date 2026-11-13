@@ -247,13 +247,11 @@ passwords -- passwords must be set manually), and restores the schema. For Supab
 automatically excludes the ~27 managed schemas (`auth`, `storage`, `extensions`, etc.) that
 already exist on every Supabase project.
 
-**If you have tables that reference `auth.users`** (a foreign key from your table into the
-auth schema), you must also load auth data onto the target before the next step:
-
-```bash
-# ONLY if you have cross-schema FKs into auth.users (doctor will tell you)
-bun start bootstrap --confirm --with-auth-data
-```
+**If you use Supabase Auth** (or have tables with a foreign key into `auth.users`), the auth
+rows move at cutover, not here: Auth keeps writing them on the source until the write stop,
+and the copy does not need them (the target skips FK checks on replicated rows). `cutover
+--with-auth-data` (Step 6) reloads them. `bootstrap --with-auth-data` copies a snapshot now,
+which only helps if you want to test sign-ins against the target before cutover.
 
 ### Step 2: Stand up replication
 
@@ -320,14 +318,21 @@ writes on the source, tear down replication with `teardown`, and fix the issue.
 ### Step 6: Cutover (drain lag, resync sequences, drop subscription)
 
 ```bash
-bun start cutover
+bun start cutover --with-auth-data    # drop --with-auth-data if the source has no Auth users
 ```
 
 **What it does:**
 1. Drains remaining replication lag to 0 (waits up to 300 seconds by default)
 2. Verifies writes are actually stopped (samples WAL position twice)
 3. Resyncs sequence values (serial/IDENTITY columns) so new inserts don't collide
-4. Drops the subscription (replication stops permanently)
+4. With `--with-auth-data`: dumps the source's `auth` rows (`auth.schema_migrations` excluded)
+   and, in one transaction on the target, empties its auth tables and loads them. The dump in
+   `--out-dir` holds password hashes and refresh tokens; delete it once cutover is verified. If
+   the reload fails nothing is committed and the subscription stays, so fix and re-run.
+5. Drops the subscription (replication stops permanently)
+
+Stop the source's Auth traffic (sign-ins, token refreshes) along with the app's writes: a
+refresh on the source after the dump is not on the target, and that user signs in again.
 
 **Expected output:**
 ```
@@ -369,7 +374,11 @@ settings, Storage settings, pooler config) via the Supabase Management API. Secr
 passwords, OAuth client secrets) are NOT copied by default.
 
 **The JWT signing secret + API keys are NEVER copied.** New project = new keys by design.
-Existing user sessions will invalidate and users will need to re-login.
+Sessions can still survive when the auth rows were reloaded at cutover: the refresh token a
+client holds works on the new project, the access token it holds does not until the client
+refreshes, and supabase-js only finds the stored session if `storageKey` is pinned to the old
+key (default `sb-<first label of the project hostname>-auth-token`). Otherwise users sign in
+once. Details in docs/RUNBOOK.md section 9.
 
 ### Step 8: Match billable infra (optional, Supabase only)
 
@@ -568,7 +577,7 @@ bun start preflight
 # Prepare the target: enable extensions + restore roles + schema from source.
 # Preview by default; --confirm applies the changes.
 # --all-schemas: include Supabase managed schemas (auth/storage/...)
-# --with-auth-data: also load auth schema row data (FK pre-step)
+# --with-auth-data: also copy a SNAPSHOT of the auth rows (testing only; cutover reloads them)
 # --out-dir <path>: directory for dumped SQL files (default: ledger)
 bun start bootstrap --confirm
 ```
@@ -677,7 +686,7 @@ bun start run --through reconcile --json
 
 ```bash
 # Cutover is destructive and refused unless you assert writes are stopped:
-bun start run --through cutover --confirm-writes-stopped
+bun start run --through cutover --confirm-writes-stopped [--with-auth-data]
 ```
 
 ### Status (one-shot snapshot)
@@ -858,7 +867,10 @@ bun start rehearse writer --ledger ledger/written_ids.log
 | `GSSAPI negotiation error` or `unsupported version` when running `bootstrap` | Local `pg_dump`/`psql` version is older than the source server's major version. The client library uses GSSAPI negotiation, which fails when the versions don't match. | Install a newer postgres client: `brew install postgresql@17` (macOS), `apt install postgresql-client-17` (Debian/Ubuntu). The local version only needs to be >= the source version. |
 | `doctor` reports `NOT READY` -- pooler detected in SOURCE_DB_URL | You set `SOURCE_DB_URL` to the pooler host (`*.pooler.supabase.com`). The pooler cannot stream logical replication. | Change `SOURCE_DB_URL` to the **direct** host (`db.<ref>.supabase.co:5432`). If you have no IPv6, set `SOURCE_REPLICATION_URL` to the direct host and keep `SOURCE_DB_URL` on the pooler (Option C). |
 | `doctor` reports `NOT READY` -- cannot reach direct host | Your machine has no IPv6 route to the direct host, and the project does not have the IPv4 add-on. | Run from an IPv6-capable host (Option A) or enable the IPv4 add-on in the dashboard (Option B, ~$6/mo). |
-| `replicate` fails with `ERROR: insert or update on table "users" violates foreign key constraint "fk_user_id"` on `auth.users` | A table in your replication list has a foreign key into `auth.users`, but the target's `auth.users` is empty. Every row is rejected. | Before running `replicate`, load auth data onto the target: `bun start bootstrap --confirm --with-auth-data`. `doctor` prints this advice. |
+| Users can't sign in on the target after cutover, or rows reference users the target doesn't have | Auth rows never reached the target, or a `bootstrap --with-auth-data` snapshot missed everything Auth wrote afterwards. Logical replication does not carry `auth` (`replicate` refuses it). | Re-run the auth reload inside a write stop: `bun start cutover --with-auth-data` while the subscription still exists; after it is dropped, dump `auth` with `supabase db dump --data-only --schema auth -x auth.schema_migrations` and restore it with `session_replication_role = replica`. |
+| `replicate` refuses with `the source holds initial-copy slots from another subscription` | Another target's initial copy is still running against this source (or left a stale slot). Two targets copying at once can collide on the slot name and one stops streaming without an error. | Wait until the other target shows every table `r`, then re-run. If no other target exists, check the named slot stays inactive and drop it on the source with `SELECT pg_drop_replication_slot('<slot>');`. |
+| `replicate` refuses with `service-owned tables` | `replication.tables` lists `auth`, `storage`, `realtime`, `supabase_functions`, `supabase_migrations` or `vault` tables. | Remove them; auth rows move with `cutover --with-auth-data`, Storage objects with `bun start storage`. |
+| `CREATE SUBSCRIPTION` hangs until a statement timeout | The source has network restrictions that do not allow the target's outbound address. | Run `doctor`: it checks the target's IPv6 address against the source's allow list and prints the `supabase network-restrictions update ... --append` command (with the IPv4 add-on on the source, it prints how to read the target's IPv4 address instead). |
 | `watch` shows a table stuck in copy with `sync_error_count` rising, and the target logs `could not receive data from WAL stream: ERROR: canceling statement due to statement timeout` every 2 minutes | On a Supabase source the `postgres` role is capped by the 2 min global `statement_timeout` (supabase.com/docs/guides/database/postgres/timeouts). The subscription CONNECTION is dialled by the target's tablesync worker, so the timeout cancels any initial COPY longer than two minutes and the table restarts forever (live run 2026-11-09, 4M rows, 16 restarts). | Fixed in ae33443: `replicate` adds `options=-c statement_timeout=0` to the subscription CONNECTION unless one is set. On an older pgmig, put `?options=-c%20statement_timeout%3D0` on `SOURCE_REPLICATION_URL`. |
 | After cutover, a custom login role cannot connect to the target | Database roles are dumped without passwords (`pg_dumpall --roles-only --no-role-passwords`). The role exists on the target but has no password. | Reset the password on the target: `ALTER ROLE <name> WITH PASSWORD '<new-password>';` |
 | `upgrade doctor` warns about roles using `md5` passwords | The source uses `md5` password encryption, which is deprecated (or removed) on the target major version. After upgrade, these roles cannot authenticate. | Change each role to use `scram-sha-256`: `ALTER ROLE <name> WITH PASSWORD '<password>';` (this automatically upgrades to scram-sha-256). |

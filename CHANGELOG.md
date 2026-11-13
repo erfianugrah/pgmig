@@ -5,6 +5,45 @@ All notable changes to pgmig are documented here. Format loosely follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Pre-1.0, minor
 versions may carry behaviour changes.
 
+## [Unreleased]
+
+### Added
+
+- **`cutover --with-auth-data`** (also `run --through cutover --with-auth-data`):
+  after the lag drain and sequence resync, dumps the source's `auth` rows
+  (`auth.schema_migrations` excluded) and, in one transaction on the target,
+  empties its auth tables under `session_replication_role = replica` and loads
+  them, then drops the subscription. A failed reload commits nothing and leaves
+  the subscription for a re-run. Rows Auth writes between bootstrap and cutover
+  were previously lost.
+- **`doctor` checks the source's network restrictions** against the target's
+  outbound address (Supabase source, valid access token): the target db host's
+  AAAA against the source's IPv6 list, with the `--append` command when it is
+  missing; with the IPv4 add-on on the source, how to read the target's IPv4
+  address. A blocked target hangs `CREATE SUBSCRIPTION` instead of failing.
+
+### Changed
+
+- **`replicate` refuses service-owned tables** (`auth`, `storage`, `realtime`,
+  `supabase_functions`, `supabase_migrations`, `vault`) on a Supabase-shaped
+  source.
+- **`replicate` refuses to start while another subscription's initial-copy
+  slot (`pg_<oid>_sync_<oid>_<sysid>`) is on the source**: two new targets
+  copying at once can collide on the slot name. `doctor` names such slots
+  instead of calling them a competing CDC consumer.
+- **`replicate` keeps the source password out of the target's logs**: `CREATE
+  SUBSCRIPTION` runs on one reserved session after `SET log_statement = 'none'`.
+- **The cross-schema FK premise is corrected.** Replicated rows skip FK checks
+  on the subscriber (apply and initial-copy workers run with
+  `session_replication_role = replica`; integration tier, 15 -> 17), so auth
+  rows are no longer a pre-copy requirement. `doctor`'s fix line points auth
+  deps at `cutover --with-auth-data` and other schemas at a dump/restore inside
+  the write stop; `bootstrap --with-auth-data` warns that it copies a snapshot.
+- Integration tier: source/target images selectable with `PGMIG_SOURCE_IMAGE` /
+  `PGMIG_TARGET_IMAGE`; the target logs DDL so the password check cannot pass
+  vacuously. New local tier `test/cutover-auth.integration.test.ts` (needs the
+  pg clients).
+
 ## [0.4.0] - 2026-07-29
 
 ### Added

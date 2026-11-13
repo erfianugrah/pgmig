@@ -55,16 +55,16 @@ Read the README and RUNBOOK before a real migration.
 
 ```
 doctor      readiness checklist (pooler-vs-direct, IPv6, wal_level, replica
-            identity, subscribe grant, schema loaded, extension diff, auth.users
-            FK trap, custom pg_db_role_setting GUC overrides config-sync can't
-            carry). --source-only when target not created yet. Fail-closed.
+            identity, subscribe grant, schema loaded, extension diff, cross-
+            schema FKs (their rows move at cutover), custom pg_db_role_setting
+            GUC overrides config-sync can't carry, and for a Supabase source
+            whether its network restrictions let the target's address in). --source-only when target not created yet. Fail-closed.
   |
 bootstrap   prepare the TARGET: enable extensions + restore roles + schema
             dumped from source (into --out-dir, default ledger/). Preview by
             default; --confirm mutates. A Supabase source skips auth/storage/
             etc. (already on the target) unless --all-schemas. --with-auth-data
-            also dumps+restores auth-schema ROW data with FK triggers deferred
-            (the auth.users FK pre-step).
+            copies a SNAPSHOT of the auth rows (testing only; cutover reloads).
   |
 preflight   read-only gate: versions, wal_level=logical, CREATE SUBSCRIPTION
             grant, every published table has a replica identity. Fails closed.
@@ -72,7 +72,12 @@ preflight   read-only gate: versions, wal_level=logical, CREATE SUBSCRIPTION
 replicate   empty publication + ADD TABLE (never FOR ALL TABLES - needs
             superuser) + slot + subscription (copy_data=true -> consistent
             initial copy). Re-run issues ALTER SUBSCRIPTION ... REFRESH PUBLICATION
-            to pick up a newly-added table.
+            to pick up a newly-added table. Refuses auth/storage/realtime/
+            supabase_functions/supabase_migrations/vault tables on a Supabase
+            source, and refuses while another subscription's pg_*_sync_* slot is
+            on the source (concurrent targets collide, RR11). CREATE SUBSCRIPTION
+            runs after SET log_statement = 'none' so the password stays out of
+            the target's DDL log.
   |
 watch       polls pg_subscription_rel until all tables srsubstate='r'; aborts on
             WAL-bloat > watchdog.maxRetainedWalMb, slot wal_status='lost'
@@ -87,7 +92,10 @@ reconcile   chunked checksum (256 buckets default): one scan/side, bucket by PK
 cutover     STOP source app writes first. Samples WAL LSN twice + counts
             write-shaped backends -> warns loudly if WAL still advancing. Drains
             lag to 0, setval()s every sequence OWNED BY a replicated column on
-            the target (serial + IDENTITY; no-op for uuid PKs), drops subscription.
+            the target (serial + IDENTITY; no-op for uuid PKs), then with
+            --with-auth-data dumps auth (schema_migrations excluded) and empties +
+            reloads the target's auth tables in ONE transaction under replica
+            role (a failure commits nothing, subscription kept), drops subscription.
   |
 teardown    disable -> SET (slot_name = NONE) -> drop subscription -> drop slot ->
             drop publication (this order, or it hangs).
@@ -112,9 +120,13 @@ Verified live end-to-end from a non-IPv6 box against a real cross-region pair.
 `doctor` classifies each URL and tells you which case you're in.
 
 **What logical replication does NOT carry: roles, DDL, extensions, sequences
-as DDL, the Supabase-managed `auth`/`storage` schemas.** Without them on the
-target the initial copy is FK-rejected row by row. `bootstrap` restores
-extensions, roles and schema (and, with `--with-auth-data`, the auth rows) -
+as DDL, the Supabase-managed `auth`/`storage` schemas.** Replicated rows skip
+FK checks on the subscriber (apply and initial-copy workers run with
+`session_replication_role = replica`; child rows copied and streamed with the
+parent table empty, pgmig integration tier 15 -> 17, 2026-11-13), so a missing
+referenced row does not block the copy; it breaks the app after cutover.
+`bootstrap` restores extensions, roles and schema (with `--with-auth-data`, a
+snapshot of the auth rows) -
 run it in preview, read the ledger, then `--confirm`. For a non-Supabase source
 the same shape by hand is: dump roles, dump schema, restore both with
 `psql --single-transaction --variable ON_ERROR_STOP=1`, then restore any
@@ -122,9 +134,13 @@ cross-schema reference data under `SET session_replication_role = replica`
 (`pg_dump`/`pg_dumpall` in place of `supabase db dump`). `doctor` diffs
 extensions and lists the missing ones either way.
 
-**The `auth.users` cross-schema FK trap.** `public.<table>.user_id -> auth.users`,
-and `auth` is not replicated - its data must exist on the target before the copy.
-`doctor` flags any such cross-schema FK; `bootstrap --with-auth-data` fills it.
+**Auth rows move at cutover, inside the write stop.** `auth` is not replicated
+(`replicate` refuses it), and Auth keeps writing sign-ups, sessions and refresh
+tokens on the source until the write stop, so a bootstrap snapshot misses them (a
+refresh token used on the source after the copy is unknown at the target,
+supabase-lab session-carry S03a). `cutover --with-auth-data` reloads them; stop
+the source's Auth traffic along with the app's writes. `doctor` flags each
+cross-schema FK and prints where its rows come from.
 
 **Sequences don't replicate -> post-cutover PK collision.** A serial/IDENTITY
 sequence on the target stays at its post-schema-load value; the next insert
@@ -151,9 +167,14 @@ Lossless rollback is free *before* you repoint the app (RUNBOOK 9e); after that,
 rolling back loses every write the target took. RUNBOOK section 12 has the
 per-phase tree + optional reverse-replication escape hatch.
 
-**Supabase identity churn.** A new project = new JWT secret + API keys -> existing
-user sessions invalidate and the app's `SUPABASE_URL` + publishable/secret keys
-change. `config-sync` copies settings; secrets are stripped by default. Auth
+**Supabase identity churn.** A new project = new JWT secret + API keys -> the
+access tokens clients hold are refused until they refresh, and the app's
+`SUPABASE_URL` + publishable/secret keys change. Sessions survive only with the
+auth rows reloaded at cutover (the held refresh token then works, tenant-promotion
+P01) and a client that finds its stored session: supabase-js keys it
+`sb-<first hostname label>-auth-token`, so pin `storageKey` to the old key; it
+does not refresh on a 401 by itself (client-retries CR02h). Otherwise users sign
+in once. `config-sync` copies settings; secrets are stripped by default. Auth
 integration creds (SMTP/OAuth/SMS/hooks) + Edge-Function secrets are opt-in
 (`configSync.secrets` / `configSync.projectSecrets`); the JWT signing secret + API
 keys are **never** copied (not on any synced endpoint). Optional opt-in sections:
