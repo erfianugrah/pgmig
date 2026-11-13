@@ -168,7 +168,7 @@ docker compose -f docker-compose.test.yml run --rm \
 ```
 
 Each harness exits non-zero if the expected gate does **not** fire, so they double as CI
-assertions (see `.github/workflows/ci.yml`). This is the negative-path complement to the
+assertions (see `.forgejo/workflows/ci.yml`). This is the negative-path complement to the
 README's `rehearse chaos` table — same gates, exercised at scale.
 
 ---

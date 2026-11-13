@@ -127,7 +127,7 @@ pgmig doctor             # same UX as `bun start doctor`
 ```
 
 Rebuild after code changes. Tagged releases (`v*`) also publish prebuilt
-linux/darwin x64+arm64 binaries via `.github/workflows/release.yml`.
+linux/darwin x64+arm64 binaries via `.forgejo/workflows/release.yml`.
 
 ### Environment variables
 
