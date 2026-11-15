@@ -24,8 +24,20 @@ RUN mvn -q -B dependency:copy-dependencies -DoutputDirectory=/jars -DincludeScop
 
 FROM quay.io/debezium/server:3.6.3.Final
 USER root
-# Only the jars the stock image lacks land here; same-named same-version jars overwrite harmlessly.
-COPY --from=deps /jars/ /debezium/lib/
+# Only artifacts the stock image LACKS are added. copy-dependencies resolves the sink's whole
+# runtime tree, which overlaps ~70 artifacts the server already ships at other versions
+# (mutiny 3.0.1 vs 3.1.1, vertx-core 4.5.24 vs 4.5.27, netty, smallrye-common, ...); copying
+# them all put two versions of each on the classpath and Quarkus intermittently loaded the
+# wrong one (NoSuchMethodError on mutiny Infrastructure.setDefaultExecutor, CI runs 17/18,
+# work-pgmig#22). The server's copy wins for every shared artifact.
+COPY --from=deps /jars/ /tmp/sink-jars/
+RUN set -e; added=0; \
+    for j in /tmp/sink-jars/*.jar; do \
+      a=$(basename "$j" | sed -E 's/-[0-9][0-9A-Za-z._-]*\.jar$//'); \
+      if ! ls /debezium/lib/"$a"-[0-9]*.jar >/dev/null 2>&1; then cp "$j" /debezium/lib/; added=$((added+1)); fi; \
+    done; \
+    rm -rf /tmp/sink-jars; echo "added $added sink-only jars"; \
+    ls /debezium/lib/debezium-server-jdbc-*.jar /debezium/lib/postgresql-*.jar
 # NB: stay as the base image's default user — the stock image runs as a numeric UID with no
 # `debezium` passwd entry, so an explicit `USER debezium` makes `docker run` fail with
 # "unable to find user debezium". The spike proved running as-is works.
