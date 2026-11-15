@@ -52,7 +52,7 @@ export const DEBEZIUM_JDBC_SINK_ARTIFACT = "io.debezium:debezium-server-jdbc";
 /** The PostgreSQL JDBC driver the sink writes through (server image ships none — finding #3). */
 export const DEBEZIUM_TARGET_DRIVER = "org.postgresql:postgresql:42.7.4";
 
-/** False until 3.6.0.Final ships. Gates any "production-supported" claim in CLI/docs output. */
+/** False while the JDBC sink is pre-GA (3.6.3.Final shipped 2026-09-28; the flag tracks sink support, not a version). Gates any "production-supported" claim in CLI/docs output. */
 export const DEBEZIUM_RUNTIME_GA = false;
 
 /**
