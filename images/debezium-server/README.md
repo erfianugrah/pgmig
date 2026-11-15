@@ -20,19 +20,22 @@ tag.
 
 | Layer | Why |
 |---|---|
-| `debezium-server-jdbc` + transitive deps | The stock image bundles 14 messaging sinks (kafka/kinesis/pubsub/redis/…) but **no** JDBC sink. |
+| `debezium-server-jdbc` + transitive deps | The stock image bundles 14 messaging sinks (kafka/kinesis/pubsub/redis/...) but **no** JDBC sink. |
 | `org.postgresql:postgresql` driver | Debezium Server ships **no** target-DB driver ("add the driver to `lib/`"). |
 
-A Maven stage resolves `jdbc-sink.pom.xml` and copies the jars into `/debezium/lib/`.
+A Maven stage resolves `jdbc-sink.pom.xml`. The Dockerfile then adds **only** the artifacts
+the stock server image lacks (~22 jars at 3.6.3.Final) -- not the whole runtime tree. ~70
+artifacts overlap at different versions (mutiny 3.0.1 vs 3.1.1, vertx-core 4.5.24 vs 4.5.27,
+netty); copying them all put two versions of each on the classpath and Quarkus intermittently
+failed at startup with `NoSuchMethodError`.
 
 ## Version pin
 
 `debezium-server-jdbc` and the `FROM` server image are pinned **together** at `3.6.3.Final`. The
 JDBC sink is a 3.6-only, not-yet-GA feature; both the `3.6.3.Final` server *image* and the matching
-`3.6.3.Final` sink *jar* now ship (re-pinned Beta2 -> CR1 on 2026-07-01), so there is no core/sink
-skew. `3.6.0.Final` is still unscheduled, so this stays a pre-release and `DEBEZIUM_RUNTIME_GA`
-stays `false`. Re-pin both to Final when a matching image+jar pair ships. See
-[`docs/HETEROGENEOUS.md`](../../docs/HETEROGENEOUS.md) §5 for the full delivery-vehicle decision.
+`3.6.3.Final` sink *jar* now ship as a matched pair (re-pinned Beta2 -> CR1 on 2026-07-01, CR1 ->
+3.6.3.Final on 2026-09-28), so there is no core/sink skew. `DEBEZIUM_RUNTIME_GA` stays `false`
+(the JDBC sink is still not GA-supported). Re-pin when the sink graduates.
 
 ## How the engine runs it
 
@@ -44,7 +47,8 @@ launches one detached container per the run-spec:
   (Quarkus external config — mount the file, not the dir, spike finding #4);
 - a persistent volume backs `/debezium/data` (offset + schema-history `*.dat`) so a restart does
   not re-snapshot the whole source;
-- the Quarkus port `8080` is published for the health endpoint (`/q/health`) and the metrics the
-  `watch` step scrapes.
+- the Quarkus port `8080` is published for the health endpoint (`/q/health`) used by the `watch`
+  step to verify connector liveness; this image ships **no** `/q/metrics` endpoint (404), so
+  health + count-convergence are the observable sync-complete signals.
 
 The container needs no command args — Debezium Server auto-loads `./config/application.properties`.
