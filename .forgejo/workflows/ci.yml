@@ -67,11 +67,15 @@ jobs:
       # Private Docker daemon for this job. The runner's shared host socket
       # resolves bind mounts and published ports on the router, not in this
       # container, so tests that mount the workspace or dial localhost need
-      # their own daemon (runs as root under a privileged runner; vfs avoids nested overlay).
+      # their own daemon (runs as root under a privileged runner). Its data root is a
+      # tmpfs with overlay2: vfs on top of the job container's overlay was too slow
+      # on the runner's disk, so postgres/mysql missed their healthcheck budget.
       - name: Start job-private dockerd
         run: |
-          sh -c 'dockerd --host=unix:///tmp/dind.sock --data-root=/tmp/dind-data --storage-driver=vfs >/tmp/dockerd.log 2>&1 &'
-          for i in $(seq 1 30); do docker -H unix:///tmp/dind.sock info >/dev/null 2>&1 && break; sleep 1; done
+          mkdir -p /tmp/dind-data && mount -t tmpfs -o size=12g tmpfs /tmp/dind-data
+          sh -c 'dockerd --host=unix:///tmp/dind.sock --data-root=/tmp/dind-data --storage-driver=overlay2 >/tmp/dockerd.log 2>&1 &'
+          for i in $(seq 1 60); do docker -H unix:///tmp/dind.sock info >/dev/null 2>&1 && break; sleep 1; done
+          docker -H unix:///tmp/dind.sock info >/dev/null 2>&1 || { tail -30 /tmp/dockerd.log; exit 1; }
           echo "DOCKER_HOST=unix:///tmp/dind.sock" >> "$GITHUB_ENV"
           docker -H unix:///tmp/dind.sock info --format 'private dockerd: {{.ServerVersion}} {{.Driver}}'
       - name: Install bun
@@ -115,6 +119,15 @@ jobs:
           psql --version
           bun test test/bootstrap.integration.test.ts
 
+      - name: Container state (on failure)
+        if: failure()
+        run: |
+          docker ps -a --format '{{.Names}} {{.Status}}' || true
+          for c in $(docker ps -a --format '{{.Names}}'); do
+            echo "=== $c"; docker inspect -f '{{json .State.Health}}' "$c" 2>/dev/null | head -c 1500; echo
+            docker logs --tail 40 "$c" 2>&1 || true
+          done
+
       - name: Bootstrap tier teardown
         if: always()
         run: docker rm -f boot-src boot-tgt || true
@@ -157,11 +170,15 @@ jobs:
       # Private Docker daemon for this job. The runner's shared host socket
       # resolves bind mounts and published ports on the router, not in this
       # container, so tests that mount the workspace or dial localhost need
-      # their own daemon (runs as root under a privileged runner; vfs avoids nested overlay).
+      # their own daemon (runs as root under a privileged runner). Its data root is a
+      # tmpfs with overlay2: vfs on top of the job container's overlay was too slow
+      # on the runner's disk, so postgres/mysql missed their healthcheck budget.
       - name: Start job-private dockerd
         run: |
-          sh -c 'dockerd --host=unix:///tmp/dind.sock --data-root=/tmp/dind-data --storage-driver=vfs >/tmp/dockerd.log 2>&1 &'
-          for i in $(seq 1 30); do docker -H unix:///tmp/dind.sock info >/dev/null 2>&1 && break; sleep 1; done
+          mkdir -p /tmp/dind-data && mount -t tmpfs -o size=12g tmpfs /tmp/dind-data
+          sh -c 'dockerd --host=unix:///tmp/dind.sock --data-root=/tmp/dind-data --storage-driver=overlay2 >/tmp/dockerd.log 2>&1 &'
+          for i in $(seq 1 60); do docker -H unix:///tmp/dind.sock info >/dev/null 2>&1 && break; sleep 1; done
+          docker -H unix:///tmp/dind.sock info >/dev/null 2>&1 || { tail -30 /tmp/dockerd.log; exit 1; }
           echo "DOCKER_HOST=unix:///tmp/dind.sock" >> "$GITHUB_ENV"
           docker -H unix:///tmp/dind.sock info --format 'private dockerd: {{.ServerVersion}} {{.Driver}}'
       - name: Install bun
