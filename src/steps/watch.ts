@@ -26,6 +26,8 @@ export async function watch(source: Db, target: Db, cfg: Config): Promise<void> 
   let prevApplyErr = -1;
   let prevSyncErr = -1;
   let pollCount = 0;
+  // Consecutive polls where the subscriber has a worker but the source slot has no walsender.
+  let workerWithoutWalsender = 0;
 
   // Expected copy volume (heap+toast of published tables on the source) so the
   // long initial COPY shows a % instead of a static 0/N for hours. Best-effort.
@@ -123,6 +125,22 @@ export async function watch(source: Db, target: Db, cfg: Config): Promise<void> 
         log.warn(
           `subscription ${subscription} has NO running worker (pid is null) — it may be disabled ` +
             "or crashed without restarting. Replication is stalled until a worker attaches.",
+        );
+      }
+
+      // A pid is not proof of a connection: when the source's network restrictions block the
+      // target, the worker keeps its pid while the source has no walsender on the slot and no
+      // rows arrive (supabase-lab RR12d). Two polls in a row, so a worker still connecting
+      // right after CREATE SUBSCRIPTION does not trip it.
+      const workers = Number(subw?.workers ?? 0);
+      workerWithoutWalsender =
+        workers > 0 && walRow?.active === false ? workerWithoutWalsender + 1 : 0;
+      if (workerWithoutWalsender >= 2) {
+        log.warn(
+          `subscription ${subscription} has a running worker but the source slot ${slot} has no ` +
+            `active walsender (${workerWithoutWalsender} polls) - the worker is not reaching the ` +
+            "source, so nothing is replicating. Check that the source's network restrictions allow " +
+            "the target's outbound address.",
         );
       }
 

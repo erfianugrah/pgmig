@@ -1,9 +1,10 @@
 /**
  * Unit tests for src/steps/watch.ts against fake source/target clients.
  */
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { ConfigSchema } from "../src/config.ts";
 import type { Db } from "../src/db.ts";
+import { log } from "../src/log.ts";
 
 // engine.test.ts replaces watch.ts process-wide via mock.module; the query suffix gives this
 // file its own registry entry so it always exercises the real implementation (held in a
@@ -52,5 +53,45 @@ describe("watch: sync state scoped to our subscription", () => {
           ];
     });
     await expect(watch(source, target, cfg())).resolves.toBeUndefined();
+  });
+});
+
+// supabase-lab replica-routing RR12d: with the source's network restrictions blocking the
+// target, the subscriber's worker kept a pid while the source had no walsender for the slot
+// and new rows never arrived. A pid alone must not read as "connected".
+describe("watch: worker pid without a source walsender", () => {
+  const warnings: string[] = [];
+  const spy = spyOn(log, "warn").mockImplementation((msg: string) => {
+    warnings.push(msg);
+  });
+  afterEach(() => {
+    warnings.length = 0;
+  });
+
+  const run = async (slotActive: boolean) => {
+    const source = fakeDb((sql) =>
+      sql.includes("pg_replication_slots")
+        ? [{ retained_bytes: 0, active: slotActive, wal_status: "reserved" }]
+        : [],
+    );
+    const target = fakeDb((sql) => {
+      if (sql.includes("pg_subscription_rel")) return [{ srsubstate: "d", n: 1 }];
+      if (sql.includes("AS workers")) return [{ workers: 1 }];
+      return [];
+    });
+    const c = cfg();
+    c.watchdog.syncTimeoutMin = 2.5 / 60; // three polls one second apart, then the deadline
+    await expect(watch(source, target, c)).rejects.toThrow("sync did not complete");
+  };
+
+  test("warns when the worker has a pid but the source slot stays inactive", async () => {
+    await run(false);
+    expect(warnings.some((w) => w.includes("no active walsender"))).toBe(true);
+  });
+
+  test("stays quiet when the source slot is active", async () => {
+    await run(true);
+    expect(warnings.some((w) => w.includes("no active walsender"))).toBe(false);
+    spy.mockRestore();
   });
 });

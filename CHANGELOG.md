@@ -44,6 +44,15 @@ versions may carry behaviour changes.
   vacuously. New local tier `test/cutover-auth.integration.test.ts` (needs the
   pg clients).
 
+### Fixed
+
+- **`watch` no longer reads a subscription worker's pid as "connected".** When
+  the source's network restrictions block the target, the worker keeps its pid
+  while the source has no walsender on the slot and no rows arrive
+  (supabase-lab replica-routing RR12d). `watch` now warns after two polls with a
+  worker on the target and an inactive slot on the source, and points at the
+  source's network restrictions.
+
 ## [0.4.0] - 2026-07-29
 
 ### Added
