@@ -85,6 +85,19 @@ describe("ConfigSchema (replication/reconcile guards)", () => {
     expect(ConfigSchema.safeParse(bad).success).toBe(false);
   });
 
+  test("accepts a table name that starts with a digit (quoted everywhere it is used)", () => {
+    // Firefly III ships public.2fa_tokens; upgrade verify died on it (2026-11-21).
+    const ok = { ...base, reconcile: { tables: [{ name: "public.2fa_tokens" }] } };
+    expect(ConfigSchema.safeParse(ok).success).toBe(true);
+  });
+
+  test("still rejects quotes and extra dots in a table name", () => {
+    for (const name of ['public."x', "public.a.b", "public.a b"]) {
+      const bad = { ...base, reconcile: { tables: [{ name }] } };
+      expect(ConfigSchema.safeParse(bad).success).toBe(false);
+    }
+  });
+
   test("requires at least one published table", () => {
     const bad = { ...base, replication: { tables: [] } };
     expect(ConfigSchema.safeParse(bad).success).toBe(false);

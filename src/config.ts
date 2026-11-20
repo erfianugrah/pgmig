@@ -7,10 +7,12 @@ const Ident = z
   .string()
   .regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/, "must be a bare SQL identifier (no quoting, no dots)");
 
-/** schema-qualified table, e.g. public.documents */
-const QualifiedTable = z
-  .string()
-  .regex(/^[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*$/, "must be schema.table");
+/**
+ * schema-qualified table, e.g. public.documents. A part may start with a digit
+ * (Firefly III's public.2fa_tokens): every SQL use double-quotes both parts,
+ * so the allowlist only has to keep quotes, dots and spaces out.
+ */
+const QualifiedTable = z.string().regex(/^[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+$/, "must be schema.table");
 
 const ReconcileTable = z.object({
   /** schema.table */
