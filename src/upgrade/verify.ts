@@ -30,6 +30,29 @@ export interface UpgradeVerifyOpts {
   maxExamples?: number;
 }
 
+export interface TableSetDiff {
+  missingOnTarget: string[];
+  extraOnTarget: string[];
+  common: string[];
+}
+
+/** Pure: diff two table-name lists, optionally filtering managed schemas. */
+export function diffTableSets(
+  srcNames: string[],
+  tgtNames: string[],
+  opts: { includeManaged?: boolean } = {},
+): TableSetDiff {
+  const filter = (names: string[]) =>
+    opts.includeManaged ? names : filterManagedTables(names, SUPABASE_MANAGED_SCHEMAS);
+  const src = new Set(filter(srcNames));
+  const tgt = new Set(filter(tgtNames));
+  return {
+    missingOnTarget: [...src].filter((t) => !tgt.has(t)).sort(),
+    extraOnTarget: [...tgt].filter((t) => !src.has(t)).sort(),
+    common: [...src].filter((t) => tgt.has(t)).sort(),
+  };
+}
+
 async function tablesOn(db: Db): Promise<string[]> {
   const rows = await db.unsafe<{ name: string }[]>(USER_TABLES_SQL);
   return rows.map((r) => r.name);
@@ -45,12 +68,7 @@ export async function upgradeVerify(
   log.step("upgrade verify: table discovery");
   const srcTables = await tablesOn(source);
   const tgtTables = await tablesOn(target);
-  const filter = (names: string[]) =>
-    opts.includeManaged ? names : filterManagedTables(names, SUPABASE_MANAGED_SCHEMAS);
-  const src = new Set(filter(srcTables));
-  const tgt = new Set(filter(tgtTables));
-  const missingOnTarget = [...src].filter((t) => !tgt.has(t)).sort();
-  const extraOnTarget = [...tgt].filter((t) => !src.has(t)).sort();
+  const { missingOnTarget, extraOnTarget, common } = diffTableSets(srcTables, tgtTables, opts);
   if (missingOnTarget.length > 0) {
     ok = false;
     log.err(`tables MISSING on the upgraded cluster: ${missingOnTarget.join(", ")}`);
@@ -58,7 +76,6 @@ export async function upgradeVerify(
   if (extraOnTarget.length > 0) {
     log.warn(`tables only on the upgraded cluster (unexpected): ${extraOnTarget.join(", ")}`);
   }
-  const common = [...src].filter((t) => tgt.has(t)).sort();
   if (common.length === 0) {
     log.err("no common user tables to reconcile");
     return false;
