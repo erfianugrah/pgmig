@@ -1,73 +1,32 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Db } from "../src/db.ts";
 import { USER_TABLES_SQL } from "../src/upgrade/kb.ts";
 import { diffTableSets, upgradeVerify } from "../src/upgrade/verify.ts";
+import { AGG_RE, COLS_RE, EXT_RE, MD5_RE, mockDb, PK_RE, TBL_RE } from "./support/card24-mockdb.ts";
 
-/** Detect whether engine.test.ts's process-wide mock.module replaced reconcile. */
-let reconciledStubbed = false;
-beforeAll(async () => {
-  // engine.test.ts stubs reconcile via mock.module. When reconcile.ts is
-  // cached with the stub, upgradeVerify never detects row-level mismatches
-  // (the stub always returns true). We detect this so the two tests that
-  // depend on real reconcile can skip.
-  const m = await import("../src/steps/reconcile.ts");
-  // The stub from engine.test.ts spreads the real exports; the only
-  // overridden export is reconcile itself. Call it with a known-bad
-  // configuration that the real reconcile would reject.
-  try {
-    // biome-ignore lint/complexity/noBannedTypes: probe call, not a type declaration
-    reconciledStubbed = await (m.reconcile as Function)(
-      {} as Db,
-      {} as Db,
-      { replication: { tables: [] }, reconcile: {} },
-      { mode: "chunked" },
-    );
-  } catch {
-    // Real reconcile throws on bad config → not stubbed.
-    reconciledStubbed = false;
-  }
-});
+const REPO_ROOT = join(import.meta.dir, "..");
+const FIXTURE = "./test/support/card24-rowlevel.fixture.ts";
 
 /**
- * Build a mock Db that matches SQL via regex and returns canned rows.
- * First matching regex wins; returns [] when nothing matches.
+ * Run the row-level fixture in a fresh bun process. CARD24_STUB_RECONCILE=pass
+ * swaps reconcile for the always-match stub (the mutation under test).
  */
-function mockDb(responses: Array<{ match: RegExp; rows: unknown[] }>): Db {
-  const find = (sql: string): unknown[] => {
-    for (const r of responses) {
-      if (r.match.test(sql)) return r.rows;
-    }
-    return [];
-  };
-
-  const fn = function (
-    this: unknown,
-    strings: TemplateStringsArray,
-    ...values: unknown[]
-  ): Promise<unknown[]> {
-    const sql = strings.reduce(
-      (acc, s, i) => acc + s + (i < values.length ? String(values[i]) : ""),
-      "",
-    );
-    return Promise.resolve(find(sql));
-  } as unknown as {
-    (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]>;
-    unsafe<T>(sql: string, params?: unknown[]): Promise<T>;
-  };
-  fn.unsafe = <T>(sql: string, _params?: unknown[]): Promise<T> => Promise.resolve(find(sql) as T);
-  return fn as Db;
+async function runFixture(stub: "" | "pass"): Promise<{ code: number; out: string }> {
+  const proc = Bun.spawn([process.execPath, "test", FIXTURE], {
+    cwd: REPO_ROOT,
+    env: { ...process.env, CARD24_STUB_RECONCILE: stub },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [out, err, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  return { code, out: `${out}\n${err}` };
 }
-
-// SQL fingerprints used by upgradeVerify / reconcile.
-const TBL_RE = /table_schema.*table_name.*table_type.*BASE TABLE/s;
-const PK_RE = /pg_index.*pg_attribute.*indisprimary/s;
-const COLS_RE = /information_schema.columns.*is_generated/s;
-const AGG_RE = /abs\(hashtextextended/; // aggregate scan and drill both carry this
-const EXT_RE = /SELECT extname, extversion FROM pg_extension/;
-const MD5_RE = /rolcanlogin.*md5/;
 
 describe("diffTableSets pure-function negative controls (card24)", () => {
   test("card24: missing table on target -> missingOnTarget populated", () => {
@@ -126,48 +85,28 @@ describe("upgradeVerify negative controls (card24)", () => {
     expect(ok).toBe(false);
   });
 
-  test("card24: one row changed on target -> verify FAILS", async () => {
-    if (reconciledStubbed) return; // skipped: mock reconcile always returns true
-    // Source and target have the same table but the aggregate-hash differs.
-    const src = mockDb([
-      { match: TBL_RE, rows: [{ name: "public.users" }] },
-      { match: PK_RE, rows: [{ attname: "id" }] },
-      { match: COLS_RE, rows: [{ column_name: "id" }, { column_name: "data" }] },
-      { match: AGG_RE, rows: [{ b: 0, n: "1", h: "abc123" }] },
-      { match: EXT_RE, rows: [] },
-    ]);
-    const tgt = mockDb([
-      { match: TBL_RE, rows: [{ name: "public.users" }] },
-      { match: PK_RE, rows: [{ attname: "id" }] },
-      { match: COLS_RE, rows: [{ column_name: "id" }, { column_name: "data" }] },
-      { match: AGG_RE, rows: [{ b: 0, n: "1", h: "xyz789" }] },
-      { match: EXT_RE, rows: [] },
-      { match: MD5_RE, rows: [] },
-    ]);
-    const ok = await upgradeVerify(src, tgt, { outDir });
-    expect(ok).toBe(false);
+  // The row-level controls ('one row changed', 'one row missing') live in
+  // test/support/card24-rowlevel.fixture.ts and run in a child process: the
+  // engine.test.ts mock.module stub would otherwise replace reconcile here.
+  test("card24r3: row-level negative controls run in an isolated process and FAIL verify", async () => {
+    const r = await runFixture("");
+    expect(r.out).toContain("(pass) card24: one row changed on target -> verify FAILS");
+    expect(r.out).toContain("(pass) card24: one row missing on target -> verify FAILS");
+    expect(r.out).toContain("(pass) card24: missing table on target -> verify FAILS");
+    expect(r.out).not.toContain("(fail)");
+    expect(r.code).toBe(0);
   });
 
-  test("card24: one row missing on target -> verify FAILS", async () => {
-    if (reconciledStubbed) return; // skipped: mock reconcile always returns true
-    // Same hash but row count differs.
-    const src = mockDb([
-      { match: TBL_RE, rows: [{ name: "public.users" }] },
-      { match: PK_RE, rows: [{ attname: "id" }] },
-      { match: COLS_RE, rows: [{ column_name: "id" }, { column_name: "data" }] },
-      { match: AGG_RE, rows: [{ b: 0, n: "2", h: "aaa111" }] },
-      { match: EXT_RE, rows: [] },
-    ]);
-    const tgt = mockDb([
-      { match: TBL_RE, rows: [{ name: "public.users" }] },
-      { match: PK_RE, rows: [{ attname: "id" }] },
-      { match: COLS_RE, rows: [{ column_name: "id" }, { column_name: "data" }] },
-      { match: AGG_RE, rows: [{ b: 0, n: "1", h: "aaa111" }] },
-      { match: EXT_RE, rows: [] },
-      { match: MD5_RE, rows: [] },
-    ]);
-    const ok = await upgradeVerify(src, tgt, { outDir });
-    expect(ok).toBe(false);
+  test("card24redo: stubbed reconcile comparison (ok = ok && true) makes the row-level controls FAIL", async () => {
+    const r = await runFixture("pass");
+    // verify reports PASS for a changed row under the stub ...
+    expect(r.out).toContain("(pass) card24redo: stubbed comparison lets a changed row PASS");
+    // ... so the row-level controls must catch it.
+    expect(r.out).toContain("(fail) card24: one row changed on target -> verify FAILS");
+    expect(r.out).toContain("(fail) card24: one row missing on target -> verify FAILS");
+    // missing table does not depend on the comparison: still passes.
+    expect(r.out).toContain("(pass) card24: missing table on target -> verify FAILS");
+    expect(r.code).not.toBe(0);
   });
 });
 
