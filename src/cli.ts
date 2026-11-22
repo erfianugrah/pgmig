@@ -38,7 +38,7 @@ import { renderTranslate, signOffSchema, translate } from "./steps/translate.ts"
 import { type FailOn, verify } from "./steps/verify.ts";
 import { upgradeCapture } from "./upgrade/capture.ts";
 import { upgradeDoctor } from "./upgrade/doctor.ts";
-import { resolveCopyMBps } from "./upgrade/kb.ts";
+import { resolveCopyMBps, resolveTailMbitPerSec } from "./upgrade/kb.ts";
 import { upgradeLab } from "./upgrade/lab.ts";
 import { connectSourceOnly, resolveSourceUrl } from "./upgrade/source.ts";
 import { upgradeVerify } from "./upgrade/verify.ts";
@@ -666,9 +666,14 @@ function registerUpgradeGroup(parent: Command, alias?: string): void {
     )
     .option("--copy-mbps <n>", "DEPRECATED: same in megabits/s (value / 8); use --copy-mb-per-sec")
     .option("--fixed-overhead-sec <n>", "assumed fixed platform overhead (seconds)", "900")
+    .option(
+      "--tail-mbit-per-sec <n>",
+      "assumed post-upgrade tail throughput, megabits/s (default: 100, ~80 s per GB); reported apart from the downtime window",
+    )
     .action(async (o) => {
       // Validate the rate flags before connecting: a bad value fails fast.
       const { copyMBps, deprecation } = resolveCopyMBps(o);
+      const tailMbitPerSec = resolveTailMbitPerSec(o.tailMbitPerSec);
       if (deprecation) log.warn(deprecation);
       const sourceUrl = resolveSourceUrl(o.dbUrl);
       const db = connectSourceOnly(sourceUrl);
@@ -678,6 +683,7 @@ function registerUpgradeGroup(parent: Command, alias?: string): void {
           sourceUrl,
           copyMBps,
           fixedOverheadSec: Number(o.fixedOverheadSec),
+          tailMbitPerSec,
         });
         if (r.fail > 0) process.exitCode = 1;
       } catch (e) {

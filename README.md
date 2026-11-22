@@ -467,7 +467,8 @@ SOURCE_DB_URL="postgresql://postgres:password@db.<ref>.supabase.co:5432/postgres
 ✓ No foreign replication slots
 ✗ 2 roles use md5 passwords (will fail to connect after upgrade)
   -> Fix: ALTER ROLE <name> WITH PASSWORD 'newpassword';
-✓ DB size: 2.8 GB -> estimated downtime: ~15 min (fixed overhead) + ~30 sec (copy)
+✓ DB size: 2.8 GB -> estimated client-visible downtime: ~15 min (fixed overhead) + ~30 sec (copy)
+✓ post-upgrade tail ~4 min (reported separately, not in the downtime window)
 ```
 
 **Exit code:** 0 = pass (no hard blockers), 1 = at least one hard blocker found.
@@ -727,9 +728,10 @@ bun start kb drift
 # Read-only major-upgrade readiness audit of the source.
 # --to <major>: target Postgres major version (default: 17)
 # --db-url <url>: source connection string (default: SOURCE_DB_URL)
-# --copy-mb-per-sec <n>: assumed disk copy throughput for downtime estimate, in MB/s (default: 100, ~10 s per GB)
+# --copy-mb-per-sec <n>: assumed client-visible data-upgrade copy throughput for the downtime window, in MB/s (default: 100, ~10 s per GB)
 # --copy-mbps <n>: DEPRECATED megabit/s spelling (value / 8 -> MB/s); use --copy-mb-per-sec
 # --fixed-overhead-sec <n>: assumed fixed platform overhead in seconds (default: 900)
+# --tail-mbit-per-sec <n>: assumed post-upgrade tail throughput, in megabits/s (default: 100, ~80 s per GB); reported apart from the downtime window
 bun start upgrade doctor --to 17
 ```
 

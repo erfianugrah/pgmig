@@ -112,32 +112,45 @@ export function filterGrantsForLab(sql: string, reservedRoles: readonly string[]
 // ---------------------------------------------------------------------------
 
 export interface DowntimeEstimate {
-  /** Seconds to copy the data directory at the assumed disk throughput. */
+  /** Seconds to copy the data directory at the assumed client-visible copy rate. */
   dataCopySec: number;
   /** Fixed platform overhead (new instance boot, validations, post-upgrade base backup). */
   fixedOverheadSec: number;
+  /** Client-visible downtime window, low bound (data copy + fixed overhead). */
   totalSecLow: number;
+  /** Client-visible downtime window, high bound. */
   totalSecHigh: number;
+  /** Post-upgrade tail (pg_basebackup-like), low bound. NOT in the client-visible window. */
+  tailSecLow: number;
+  /** Post-upgrade tail, high bound. */
+  tailSecHigh: number;
   assumptions: string[];
 }
 
 export interface DowntimeOpts {
   /**
-   * Assumed disk copy throughput in megaBYTES/s (MB/s). The Supabase platform
-   * guide's figure for a project on the default GP3 disk is ~100 MB/s during the
-   * upgrade (megabytes, not megabits: ~10 s per GB); faster disk types / higher
-   * IOPS reduce the copy time.
+   * Assumed throughput of the client-visible data-upgrade stage, in megaBYTES/s
+   * (MB/s). Default 100 = the platform guide's GP3 figure read as megabytes (~10 s
+   * per GB). The 2026-11-09 runs showed this stage nearly flat in size (122.5 s at
+   * 0.06 GB, 142.8 s at 3.65 GB), so this term is a small part of the window.
    */
   copyMBps: number;
   /** Fixed platform overhead in seconds (default 15 min). */
   fixedOverheadSec: number;
-  /** Pessimism multiplier applied to the copy time for the high bound. */
+  /**
+   * Assumed post-upgrade tail throughput, in megaBITS/s. The 2026-11-09 runs fit
+   * ~80 s per GB (100 Mbit/s) from 9_completed_upgrade to ACTIVE_HEALTHY. The tail
+   * is reported separately and is not part of the client-visible window.
+   */
+  tailMbitPerSec: number;
+  /** Pessimism multiplier applied to the copy and tail times for the high bounds. */
   copyFudge: number;
 }
 
 export const DEFAULT_DOWNTIME_OPTS: DowntimeOpts = {
   copyMBps: 100,
   fixedOverheadSec: 900,
+  tailMbitPerSec: 100,
   copyFudge: 1.5,
 };
 
@@ -151,6 +164,11 @@ function resolveDowntimeOpts(opts: Partial<DowntimeOpts>): DowntimeOpts {
   const o: DowntimeOpts = { ...DEFAULT_DOWNTIME_OPTS, ...defined };
   if (!Number.isFinite(o.copyMBps) || o.copyMBps <= 0) {
     throw new Error(`invalid copy throughput ${o.copyMBps} MB/s: must be a positive number`);
+  }
+  if (!Number.isFinite(o.tailMbitPerSec) || o.tailMbitPerSec <= 0) {
+    throw new Error(
+      `invalid tail throughput ${o.tailMbitPerSec} Mbit/s: must be a positive number`,
+    );
   }
   if (!Number.isFinite(o.fixedOverheadSec) || o.fixedOverheadSec < 0) {
     throw new Error(`invalid fixed overhead ${o.fixedOverheadSec}s: must be a number >= 0`);
@@ -191,9 +209,35 @@ export function resolveCopyMBps(flags: { copyMbPerSec?: string; copyMbps?: strin
 }
 
 /**
- * Pure: estimated upgrade downtime window for a database of `sizeBytes`.
- * total = data-copy time + fixed platform overhead; the low bound assumes the
- * nominal throughput, the high bound a 1.5x slower copy and 1.25x overhead.
+ * Pure: the post-upgrade tail rate in megaBITS/s from `--tail-mbit-per-sec`.
+ * Unset -> the default (100 Mbit/s, ~80 s per GB).
+ */
+export function resolveTailMbitPerSec(raw?: string): number {
+  if (raw === undefined) return DEFAULT_DOWNTIME_OPTS.tailMbitPerSec;
+  const n = Number(raw);
+  if (raw.trim() === "" || !Number.isFinite(n) || n <= 0) {
+    throw new Error(`--tail-mbit-per-sec must be a positive number, got '${raw}'`);
+  }
+  return n;
+}
+
+/**
+ * Pure: post-upgrade tail for `sizeBytes` at `tailMbitPerSec` (Mbit/s -> bytes/s is
+ * /8 * 1e6). Low = nominal rate, high = `copyFudge` times slower.
+ */
+function tailSecs(sizeBytes: number, o: DowntimeOpts): { low: number; high: number } {
+  const tailSec = sizeBytes / ((o.tailMbitPerSec * 1_000_000) / 8);
+  return { low: Math.ceil(tailSec), high: Math.ceil(tailSec * o.copyFudge) };
+}
+
+/**
+ * Pure: estimated upgrade downtime for a database of `sizeBytes`, in two parts.
+ * Client-visible window (totalSecLow/High) = data-copy time + fixed platform
+ * overhead; the low bound assumes the nominal copy rate, the high bound a 1.5x
+ * slower copy and 1.25x overhead. Post-upgrade tail (tailSecLow/High) = size at
+ * tailMbitPerSec, reported separately and NOT added to the window: the 2026-11-09
+ * sampler saw 17.11 answering before the tail, and whether clients are served
+ * during the tail was not measured.
  */
 export function estimateUpgradeDowntime(
   sizeBytes: number,
@@ -204,14 +248,18 @@ export function estimateUpgradeDowntime(
   const dataCopySec = sizeBytes / bytesPerSec;
   const totalSecLow = Math.ceil(dataCopySec + o.fixedOverheadSec);
   const totalSecHigh = Math.ceil(dataCopySec * o.copyFudge + o.fixedOverheadSec * 1.25);
+  const tail = tailSecs(sizeBytes, o);
   return {
     dataCopySec,
     fixedOverheadSec: o.fixedOverheadSec,
     totalSecLow,
     totalSecHigh,
+    tailSecLow: tail.low,
+    tailSecHigh: tail.high,
     assumptions: [
-      `disk copy throughput ~${o.copyMBps} MB/s (Supabase default GP3; faster disk/IOPS shortens this)`,
+      `client-visible data-upgrade copy ~${o.copyMBps} MB/s (Supabase default GP3; faster disk/IOPS shortens this)`,
       `fixed platform overhead ~${Math.round(o.fixedOverheadSec / 60)} min (instance provisioning, validations, post-upgrade base backup)`,
+      `post-upgrade tail ~${o.tailMbitPerSec} Mbit/s (~${Math.round(8000 / o.tailMbitPerSec)} s/GB), reported separately: NOT in the client-visible window; whether clients are served during it was not measured`,
       "upgrade time also scales with OBJECT count (tables/indexes), not just bytes",
       "app-level validation time is NOT included - budget it separately",
     ],
@@ -235,11 +283,14 @@ export function extrapolateProdDowntime(
   const scaled = labUpgradeSec * scale;
   const totalSecLow = Math.ceil(scaled + o.fixedOverheadSec);
   const totalSecHigh = Math.ceil(scaled * o.copyFudge + o.fixedOverheadSec * 1.25);
+  const tail = tailSecs(prodBytes, o);
   return {
     dataCopySec: scaled,
     fixedOverheadSec: o.fixedOverheadSec,
     totalSecLow,
     totalSecHigh,
+    tailSecLow: tail.low,
+    tailSecHigh: tail.high,
     assumptions: [
       `lab pg_upgrade took ${labUpgradeSec.toFixed(1)}s on ${(labBytes / 1_073_741_824).toFixed(2)} GiB, scaled x${scale.toFixed(2)} to prod size`,
       `fixed platform overhead ~${Math.round(o.fixedOverheadSec / 60)} min (NOT exercised by the lab: instance provisioning, validations, base backup)`,
@@ -249,11 +300,20 @@ export function extrapolateProdDowntime(
   };
 }
 
-/** Pure: human-readable "15-20 min" style range from an estimate. */
-export function renderEstimate(e: DowntimeEstimate): string {
-  const lo = Math.max(1, Math.round(e.totalSecLow / 60));
-  const hi = Math.max(lo, Math.round(e.totalSecHigh / 60));
+function minRange(low: number, high: number): string {
+  const lo = Math.max(1, Math.round(low / 60));
+  const hi = Math.max(lo, Math.round(high / 60));
   return lo === hi ? `~${lo} min` : `~${lo}-${hi} min`;
+}
+
+/** Pure: human-readable "15-20 min" style range of the client-visible downtime window. */
+export function renderEstimate(e: DowntimeEstimate): string {
+  return minRange(e.totalSecLow, e.totalSecHigh);
+}
+
+/** Pure: "~5-6 min" style range of the post-upgrade tail (not client-visible in the model). */
+export function renderTail(e: DowntimeEstimate): string {
+  return minRange(e.tailSecLow, e.tailSecHigh);
 }
 
 // ---------------------------------------------------------------------------

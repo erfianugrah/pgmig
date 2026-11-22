@@ -39,6 +39,12 @@ versions may carry behaviour changes.
   rows are no longer a pre-copy requirement. `doctor`'s fix line points auth
   deps at `cutover --with-auth-data` and other schemas at a dump/restore inside
   the write stop; `bootstrap --with-auth-data` warns that it copies a snapshot.
+- **`upgrade doctor` splits the downtime estimate in two.** The client-visible
+  window (data-upgrade copy at `--copy-mb-per-sec`, default 100 MB/s, plus the
+  fixed overhead) is reported apart from the post-upgrade tail, which is sized at
+  the new `--tail-mbit-per-sec` (default 100 Mbit/s, ~80 s per GB) and is not
+  added to the window. The 2026-11-09 in-place runs measured the stage nearly
+  flat in size and the tail at ~80 s per GB.
 - Integration tier: source/target images selectable with `PGMIG_SOURCE_IMAGE` /
   `PGMIG_TARGET_IMAGE`; the target logs DDL so the password check cannot pass
   vacuously. New local tier `test/cutover-auth.integration.test.ts` (needs the

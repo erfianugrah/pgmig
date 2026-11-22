@@ -19,6 +19,7 @@ import {
   REGTYPE_COLUMNS_SQL,
   REGTYPE_EXTENSION_OWNED_SQL,
   renderEstimate,
+  renderTail,
   SERVER_VERSION_SQL,
 } from "./kb.ts";
 import { isSupabaseProject } from "./source.ts";
@@ -61,6 +62,8 @@ export interface UpgradeDoctorOpts {
   copyMBps?: number;
   /** Fixed platform overhead for the downtime estimate (seconds). */
   fixedOverheadSec?: number;
+  /** Assumed post-upgrade tail throughput for the tail estimate (megabits/s). */
+  tailMbitPerSec?: number;
 }
 
 export async function upgradeDoctor(db: Db, opts: UpgradeDoctorOpts): Promise<UpgradeDoctorReport> {
@@ -229,10 +232,15 @@ async function sizeAndEstimate(db: Db, opts: UpgradeDoctorOpts, s: Sink): Promis
   const est = estimateUpgradeDowntime(bytes, {
     copyMBps: opts.copyMBps,
     fixedOverheadSec: opts.fixedOverheadSec,
+    tailMbitPerSec: opts.tailMbitPerSec,
   });
   s.ok(
-    `database ${gib} GiB, ${row?.user_objects ?? "?"} user objects - estimated downtime window ` +
+    `database ${gib} GiB, ${row?.user_objects ?? "?"} user objects - estimated client-visible downtime ` +
       `${renderEstimate(est)} (mostly fixed platform overhead at this size)`,
+  );
+  s.ok(
+    `post-upgrade tail ${renderTail(est)} (reported separately, not in the downtime window; ` +
+      `whether clients are served during it was not measured)`,
   );
   for (const a of est.assumptions) log.detail(`assumption: ${a}`);
   if (bytes > 50 * 1_073_741_824) {

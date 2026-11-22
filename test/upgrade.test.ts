@@ -11,7 +11,9 @@ import {
   partitionRegTypeColumns,
   preUpgradeChecklist,
   renderEstimate,
+  renderTail,
   resolveCopyMBps,
+  resolveTailMbitPerSec,
   SUPABASE_POSTGRES_IMAGES,
   stripUnsupportedExtensions,
 } from "../src/upgrade/kb.ts";
@@ -237,6 +239,60 @@ describe("upgrade verify synthetic config", () => {
     expect(cfg.reconcile.tables[0]?.name).toBe("public.documents");
     expect(cfg.replication.copyData).toBe(true);
     expect(cfg.watchdog.maxRetainedWalMb).toBeGreaterThan(0);
+  });
+});
+
+describe("card13: client-visible downtime vs post-upgrade tail", () => {
+  const GB = 1_000_000_000;
+
+  test("card13: the tail at 100 Mbit/s is ~80 s per GB (2026-11-09 3.65 GB run)", () => {
+    const e = estimateUpgradeDowntime(3.65 * GB);
+    expect(e.tailSecLow / 3.65).toBeCloseTo(80, -1);
+    expect(e.tailSecHigh).toBeGreaterThan(e.tailSecLow);
+  });
+
+  test("card13: the tail is not added to the client-visible window", () => {
+    const base = estimateUpgradeDowntime(3.65 * GB);
+    expect(base.totalSecLow).toBe(Math.ceil(base.dataCopySec + 900));
+    const slowTail = estimateUpgradeDowntime(3.65 * GB, { tailMbitPerSec: 10 });
+    expect(slowTail.totalSecLow).toBe(base.totalSecLow);
+    expect(slowTail.totalSecHigh).toBe(base.totalSecHigh);
+    expect(slowTail.tailSecLow).toBe(base.tailSecLow * 10);
+  });
+
+  test("card13: the client-visible window barely grows with size; the tail does", () => {
+    const small = estimateUpgradeDowntime(0.06 * GB);
+    const large = estimateUpgradeDowntime(3.65 * GB);
+    const windowGrowth = large.totalSecLow - small.totalSecLow;
+    const tailGrowth = large.tailSecLow - small.tailSecLow;
+    expect(tailGrowth).toBeGreaterThan(windowGrowth);
+  });
+
+  test("card13: assumptions label the copy as client-visible and the tail as separate", () => {
+    const text = estimateUpgradeDowntime(GB).assumptions.join(" ");
+    expect(text).toContain("client-visible data-upgrade copy ~100 MB/s");
+    expect(text).toContain("post-upgrade tail ~100 Mbit/s (~80 s/GB)");
+    expect(text).toContain("NOT in the client-visible window");
+  });
+
+  test("card13: renderTail renders a minute range and is separate from renderEstimate", () => {
+    const e = estimateUpgradeDowntime(3.65 * GB);
+    expect(renderTail(e)).toMatch(/^~\d+(-\d+)? min$/);
+    expect(renderEstimate(e)).not.toBe(renderTail(e));
+  });
+
+  test("card13: --tail-mbit-per-sec defaults to 100 and validates like the copy flag", () => {
+    expect(resolveTailMbitPerSec(undefined)).toBe(100);
+    expect(resolveTailMbitPerSec("250")).toBe(250);
+    expect(() => resolveTailMbitPerSec("abc")).toThrow(/--tail-mbit-per-sec/);
+    expect(() => resolveTailMbitPerSec("0")).toThrow(/--tail-mbit-per-sec/);
+    expect(() => estimateUpgradeDowntime(GB, { tailMbitPerSec: -1 })).toThrow(/tail throughput/);
+  });
+
+  test("card13: prod extrapolation carries the tail for the prod size", () => {
+    const e = extrapolateProdDowntime(10, GB, 100 * GB);
+    expect(e.tailSecLow).toBe(8000);
+    expect(e.totalSecLow).toBe(Math.ceil(1000 + 900));
   });
 });
 
