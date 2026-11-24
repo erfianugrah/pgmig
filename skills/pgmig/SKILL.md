@@ -15,9 +15,9 @@ reconcile engine: a **PG major-version upgrade rehearsal** (`upgrade`) and a
 **guided heterogeneous path** (MySQL / SQL Server source via Debezium:
 `translate`, `guide`, `kb`).
 
-- **Repo:** `~/work/pgmig` - Bun runs `src/cli.ts` directly, no build step (`bun start <cmd>`).
-- **Runbook:** `~/work/pgmig/docs/RUNBOOK.md` (per-phase, abort/rollback in section 12).
-- **Design + gotchas:** `~/work/pgmig/README.md`; heterogeneous design in
+- **Repo:** this repo - Bun runs `src/cli.ts` directly, no build step (`bun start <cmd>`).
+- **Runbook:** `docs/RUNBOOK.md` (per-phase, abort/rollback in section 12).
+- **Design + gotchas:** `README.md`; heterogeneous design in
   `docs/HETEROGENEOUS.md` and `docs/GUIDED-MIGRATION.md` (their status headers
   lag the CLI - the commands exist).
 - **Current commands and flags:** `bun start --help` and `bun start <cmd> --help`

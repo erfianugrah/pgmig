@@ -29,7 +29,7 @@ USER root
 # (mutiny 3.0.1 vs 3.1.1, vertx-core 4.5.24 vs 4.5.27, netty, smallrye-common, ...); copying
 # them all put two versions of each on the classpath and Quarkus intermittently loaded the
 # wrong one (NoSuchMethodError on mutiny Infrastructure.setDefaultExecutor, CI runs 17/18,
-# work-pgmig#22). The server's copy wins for every shared artifact.
+# 2026-11). The server's copy wins for every shared artifact.
 COPY --from=deps /jars/ /tmp/sink-jars/
 RUN set -e; added=0; \
     for j in /tmp/sink-jars/*.jar; do \

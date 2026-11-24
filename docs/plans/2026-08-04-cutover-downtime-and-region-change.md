@@ -6,8 +6,7 @@
 > which rewrote `src/steps/cutover.ts` (initial-sync gate, missing-slot error, NULL-lag
 > handling) and added `test/cutover.test.ts`. The code tasks (1-7) were re-dry-run against
 > ee76ef2; Part C (Tasks 7-12) adds the 100+ GiB rehearsal, whose live Tasks 8-12 cannot be
-> dry-run. Tracking cards:
-> work-pgmig#1 (Part A), work-pgmig#2 (Part B), work-pgmig#3 (Part C).
+> dry-run.
 
 **Goal:** give pgmig a measured downtime number per cutover, persisted across runs and readable
 from `status`; turn "change my project's region" into a named, sequenced recipe whose
@@ -81,7 +80,7 @@ them, and each ends with a `--help` invocation that prints the flag back.
    check is the repo's own dirname-relative loop (the old one missed README-relative links).
 7. Per-task commit steps restored (the 2026-08-04 "no commits this session" constraint was
    session-scoped).
-8. Part C (Tasks 7-12, card work-pgmig#3) is new.
+8. Part C (Tasks 7-12) is new.
 
 ## Dry-run status
 
@@ -137,7 +136,7 @@ defects found, and what stays unverifiable are at the end of Self-review.
 
 ---
 
-# Part A - measure and persist cutover downtime (work-pgmig#1)
+# Part A - measure and persist cutover downtime
 
 ### Task 1: the downtime module (pure arithmetic + NDJSON history)
 
@@ -1069,7 +1068,7 @@ git commit -m "feat(cli): cutover --write-stopped-at and the downtime readout in
 
 ---
 
-# Part B - region change as a named recipe (work-pgmig#2)
+# Part B - region change as a named recipe
 
 ### Task 4: the region verdict module
 
@@ -1765,7 +1764,7 @@ git commit -m "docs: region-change recipe, freeze timestamp in cutover, downtime
 
 ---
 
-# Part C - 100+ GiB single-table rehearsal (work-pgmig#3)
+# Part C - 100+ GiB single-table rehearsal
 
 **Why:** the scale harness has been exercised up to roughly 10M rows / single-digit GiB. A
 realistic large database has a 100+ GiB largest table with a heavy STORED generated column.
@@ -2102,11 +2101,9 @@ rg -A 22 'Scale rehearsal results' docs/RUNBOOK.md | rg -c '\| \|'; echo "exit=$
 Expected: no count line and `exit=1` (`rg -c` prints nothing when nothing matches). The
 unfilled template prints `11` and `exit=0`; any number means a Value cell is still empty.
 
-- [ ] **Step 4: Note the result on the cards and commit.**
+- [ ] **Step 4: Commit the recorded result.**
 
 ```bash
-vkctl comment work-pgmig#3 "100+ GiB rehearsal recorded in docs/RUNBOOK.md 'Scale rehearsal results'"
-vkctl comment work-pgmig#1 "first rehearsal window recorded via cutover -> ledger/downtime-history.ndjson; copied into docs/RUNBOOK.md"
 git add docs/RUNBOOK.md
 git commit -m "docs(runbook): record the 100+ GiB scale and upgrade-lab rehearsal results"
 ```
@@ -2146,10 +2143,10 @@ The lab images (`pgmig-pgupgrade:15-17`) and `postgres:*` images remain; remove 
 ## Self-review
 
 **Coverage against the cards.**
-work-pgmig#1: module + history (Task 1), written at subscription drop (Task 2), read by
-`status` (Task 3), documented (Task 6 Steps 3, 4, 6). work-pgmig#2: `src/steps/region.ts` +
+Part A: module + history (Task 1), written at subscription drop (Task 2), read by
+`status` (Task 3), documented (Task 6 Steps 3, 4, 6). Part B: `src/steps/region.ts` +
 `test/region.test.ts` (Task 4), `region-check` (Task 5), `docs/REGION-CHANGE.md` + wiring (Task
-6). work-pgmig#3: harness knobs (Task 7), preconditions + calibration (Task 8), scale run with
+6). Part C: harness knobs (Task 7), preconditions + calibration (Task 8), scale run with
 `ROWS` calibrated to a 100+ GiB `documents` table (Task 9), `upgrade lab --seed-gib` (Task 10), numbers in the #1 history
 and the RUNBOOK (Tasks 9 Step 3, 11), stop/teardown (Task 9 Step 2, Task 12).
 
@@ -2245,5 +2242,5 @@ Not verified, and not verifiable without live infrastructure or credentials:
   `unknown` if not); a live `region-check` run (needs a PAT); and the custom-domain plus
   external-issuer mitigation, which `docs/REGION-CHANGE.md` marks UNVERIFIED.
 - The repo's no-internal docs sensor reads a pattern file that is not present on the machine
-  used for this dry run (and passes silently when it is missing - work-pgmig#9); the plan
+  used for this dry run (and passes silently when it is missing); the plan
   was checked by hand for confidential terms instead.
